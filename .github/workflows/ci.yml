@@ -36,3 +36,9 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+      - name: Check standalone Redis initializer
+        run: |
+          go vet cmd/init_redis.go
+          go test -race cmd/init_redis.go cmd/init_redis_test.go
+          go build -o /tmp/gin-finapi-init-redis cmd/init_redis.go

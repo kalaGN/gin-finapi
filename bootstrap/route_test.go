@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ import (
 func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.AppConfig{
-		MongoDB:   config.MongoDBConfig{DSN: "invalid-test-dsn"},
+		MongoDB:   config.MongoDBConfig{DSN: "invalid-test-dsn", Database: "test", MaxPool: 100},
 		Redis:     config.RedisConfig{Addr: "127.0.0.1:1", PoolSize: 1, Timeout: time.Second},
 		RateLimit: config.RateLimitConfig{Requests: 100, Window: time.Second},
 	}
@@ -26,7 +27,7 @@ func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := closeRedis(); err != nil {
+		if err := closeRedis(context.Background()); err != nil {
 			t.Error(err)
 		}
 	})

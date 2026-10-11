@@ -77,20 +77,19 @@ func TestClientManager_ConcurrentInitializationPublishesOneClient(t *testing.T) 
 	}
 }
 
-func TestClientManager_CloseAllowsReinitialization(t *testing.T) {
+func TestClientManager_ClosePreventsReinitialization(t *testing.T) {
 	firstClient := &drivermongo.Client{}
-	secondClient := &drivermongo.Client{}
-	clients := []*drivermongo.Client{firstClient, secondClient}
 	var connectCalls int
+	var disconnectCalls int
 	var disconnected *drivermongo.Client
 	manager := clientManager{
 		connect: func(context.Context) (*drivermongo.Client, error) {
-			client := clients[connectCalls]
 			connectCalls++
-			return client, nil
+			return firstClient, nil
 		},
 		disconnect: func(_ context.Context, client *drivermongo.Client) error {
 			disconnected = client
+			disconnectCalls++
 			return nil
 		},
 	}
@@ -102,17 +101,17 @@ func TestClientManager_CloseAllowsReinitialization(t *testing.T) {
 		t.Fatalf("close() error = %v", err)
 	}
 	gotClient, err := manager.get(context.Background())
-	if err != nil {
-		t.Fatalf("second get() error = %v", err)
+	if !errors.Is(err, ErrUnavailable) || gotClient != nil {
+		t.Fatalf("get() after close = %p, %v; want nil, ErrUnavailable", gotClient, err)
 	}
 	if disconnected != firstClient {
 		t.Fatalf("disconnected client = %p, want %p", disconnected, firstClient)
 	}
-	if gotClient != secondClient {
-		t.Fatalf("second get() client = %p, want %p", gotClient, secondClient)
+	if err := manager.close(context.Background()); err != nil {
+		t.Fatalf("repeated close() error = %v", err)
 	}
-	if connectCalls != 2 {
-		t.Fatalf("connect calls = %d, want 2", connectCalls)
+	if connectCalls != 1 || disconnectCalls != 1 {
+		t.Fatalf("connect/disconnect calls = %d/%d, want 1/1", connectCalls, disconnectCalls)
 	}
 }
 

@@ -21,15 +21,16 @@
 
 | 路径 | 当前职责 |
 | --- | --- |
-| `main.go` | 配置加载、日志和 Gin 初始化、HTTP Server、信号处理与关闭 |
-| `bootstrap/` | 全局中间件和路由装配 |
+| `main.go` | 信号 Context、Run、脱敏失败摘要与退出码 |
+| `bootstrap/` | 配置、日志、依赖和路由装配；HTTP 生命周期和资源关闭 |
 | `routes/` | `GET /health`、`POST /loan` 注册 |
-| `app/Http/controllers/loan/` | 请求校验、签名、Mongo 调用和 HTTP 响应 |
-| `app/middleware/` | Recovery 之外的 CORS、日志、进程内限流；认证代码未启用 |
+| `app/Http/controllers/loan/` | 已认证请求处理、phone 查询标识、SID 和 HTTP 响应 |
+| `app/loan/`、`app/auth/` | 查询用例、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
+| `app/middleware/` | CORS、日志、进程内限流、LoanAuth；旧 auth.go 未进入主链路 |
 | `pkg/config/` | 主调用链的环境配置入口 |
 | `pkg/env/` | 遗留的重复配置工具，当前未进入主调用链 |
-| `pkg/mongo/` | Mongo 客户端、查询、gzip 解压和变量映射 |
-| `pkg/redis/` | product_map.go 读取 Redis 产品映射；旧封装未接入主链路 |
+| `pkg/mongo/` | Store 实例、客户端、查询、gzip 解压和变量映射；无全局客户端入口 |
+| `pkg/redis/` | 产品映射与凭据读取器，统一选项、独立池；旧 redis.go 未接入主链路 |
 | `pkg/rescode/`、`pkg/utils/` | 业务码、SID、时间戳和签名工具 |
 | `app/protos/helloworld/` | 未接入 Server 的 Proto 示例及生成代码 |
 | `cmd/` | 会重建测试集合的 Mongo CLI、用 HSETNX 保留已有产品映射的 Redis CLI |
@@ -56,6 +57,9 @@ go test ./...
 go test -race ./...
 go build ./...
 go build -o /tmp/gin-finapi main.go
+go test -race cmd/init_redis.go cmd/init_redis_test.go
+go vet cmd/init_redis.go
+go build -o /tmp/gin-finapi-init-redis cmd/init_redis.go
 ```
 
 - `go run main.go` 需要 Redis 配置、`MONGODB_DSN`、`MONGODB_DATABASE`；真实值只通过未跟踪
@@ -73,28 +77,29 @@ go build -o /tmp/gin-finapi main.go
 
 ```text
 main.go
-  → bootstrap.NewRouter → bootstrap.SetupRoute
+  → bootstrap.Run → bootstrap.NewRouter → bootstrap.SetupRoute
   → Recovery → CORS → Logger → 进程内 IP 限流
   → GET /health
   → POST /loan
       → LoanAuth 单次 JSON/字段/API Key/时间戳/原值签名校验
-      → LoanHandler 原样查询 phone
+      → LoanHandler 归一化查询标识 → app/loan 查询用例
       → Redis HGET mongo_map pcode，校验 JSON 字段映射
-      → mongo.GetMongo
+      → mongo.Store.Query（实例配置）
       → Mongo FindOne(t=phone)
       → gzip 解压 v → CSV 整数映射
       → CommonRes JSON
 ```
 
-LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootstrap.NewRouter 装配 Mongo 查询闭包、认证和限流，main 只调用入口。
-共享 DTO 放在 pkg/request。Handler 目前仍引用 Mongo 错误分类；Repository 接口尚未使用。
+LoanHandler 显式注入查询、SID 和 Logger；bootstrap 仅装配查询用例、存储错误适配、认证和限流。
+HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，稳定语义分别来自 app/loan、app/auth。
+Repository 接口尚未使用，不为本查询创建 CRUD 分层。
 
 ### 职责与依赖
 
 - 路由只负责公开路径、方法和 Handler 绑定；全局中间件装配放在 `bootstrap/`。
 - HTTP 解析和响应转换保持在 Handler/Controller 边界；可复用纯逻辑放在已有 `pkg/` 能力中。
 - Mongo 访问和 BSON/压缩格式处理放在数据访问边界，不向新 Handler 复制连接或解压逻辑。
-- Mongo 保持同包分工：`mongo.go` 负责查询与配置补全，`client.go` 负责客户端生命周期，
+- Mongo 保持同包分工：`store.go` 是实例配置/查询入口，`mongo.go` 定义 BSON 类型与超时解析，`client.go` 负责实例客户端生命周期，
   `codec.go` 负责 gzip/CSV 解码与变量映射，`errors.go` 负责错误分类；解码函数不得承担数据库 I/O。
 - 配置应从单一已加载对象读取。当前 `pkg/config` 与 `pkg/env` 重复是已知债务，新增代码不得扩大。
 - 新抽象必须解决已出现的复用、隔离外部依赖或可测试性问题；单次调用不创建空壳层。
@@ -103,7 +108,7 @@ LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootst
 ### 未建立的边界
 
 - 当前没有应用级事务、异步消息、后台任务或分布式一致性边界。
-- 当前没有依赖注入容器；Mongo 客户端和配置仍为全局；LoanHandler 已通过函数注入可替换查询和 SID 依赖。
+- 当前没有依赖注入容器；Mongo 配置和客户端仅由 Store 持有，不再提供全局兼容入口；查询用例与 Handler 通过函数注入。
 - 新事务、异步处理或外部服务调用必须先通过 Spec 明确一致性、超时、重试和回滚。
 - 现有结构不一致应记录风险，不借局部需求擅自进行全仓重构。
 
@@ -111,7 +116,7 @@ LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootst
 
 - 底层错误在数据访问边界保留原因，在 HTTP 边界转换为稳定、无敏感信息的契约错误。
 - 当前 Controller 区分 Mongo 未查得、超时、不可用和数据损坏，并在 HTTP 边界映射稳定业务码；
-  详细底层错误只写内部日志。
+  存储错误在装配适配边界转换成稳定语义；日志不输出可能含凭据的原始错误。
 - 修改状态码、业务码或错误体可能影响客户契约，必须先确认 Spec 和兼容方案。
 - 不忽略、覆盖或只打印错误；返回、分类或使用项目 logger 记录必要上下文。
 
@@ -269,6 +274,9 @@ go build ./...
 - 不在 Handler 与底层同时无协调重试，避免重试放大；新增熔断/降级必须通过 Spec。
 - 写操作或消息处理新增前明确幂等键、重复处理和一致性；当前 Loan 是只读查询但签名可重放。
 - Graceful Shutdown 应先停止接收/排空请求，再关闭其依赖；变更时测试超时和强制退出路径。
+- Run 统一处理服务退出/信号并归还错误；禁止服务 goroutine Fatal。HTTP Shutdown 失败尝试 Close，
+  Mongo/Redis 清理仍执行；HTTP/依赖各 5s，退出等待另有 5s 保护，部署宽限时间需环境确认。
+- Mongo Store 关闭不触发连接且关闭后不重开；Redis 每个读取器负责自己的池，REDIS_POOL_SIZE 不是应用总上限。
 - Health、readiness 和 liveness 的语义必须分开记录；不能把简单 `/health` 宣称为依赖就绪检查。
 - 日志包含方法、路径、HTTP 状态、业务码、耗时和脱敏关联 ID；不重复记录大 body。
 - 错误分类至少能区分参数、认证、未查得、依赖失败、超时和数据损坏，但契约变更需先确认。

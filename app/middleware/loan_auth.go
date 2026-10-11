@@ -8,14 +8,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
+	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 // LoanAuth 单次解析 JSON，校验 API Key 和原始 phone 的签名。
-func LoanAuth(load func(context.Context, string) (appredis.APIKeyCredential, error)) gin.HandlerFunc {
+func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reject := func(code int, message string) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, request.Response{Status: code, Msg: message})
@@ -61,7 +61,7 @@ func LoanAuth(load func(context.Context, string) (appredis.APIKeyCredential, err
 			return
 		}
 		credential, err := load(c.Request.Context(), body.Apikey)
-		if errors.Is(err, appredis.ErrAPIKeyInvalid) {
+		if errors.Is(err, auth.ErrInvalid) {
 			reject(rescode.ErrInvalidApikey, rescode.GetCodeMsg(rescode.ErrInvalidApikey))
 			return
 		}

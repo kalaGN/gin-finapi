@@ -23,6 +23,9 @@ go test -race cmd/init_redis.go cmd/init_redis_test.go
 go vet cmd/init_redis.go
 ```
 
+CI 现已显式执行上述独立测试、vet 和单文件编译，不执行程序、不连接或写入 Redis。
+初始化客户端与运行服务共用客户端选项构造器，独立持有自己的池；不会复用业务运行中的池。
+
 ## API Key 与产品 String KV 样例
 
 显式添加 `-auth-samples` 才写入认证样例，默认仍只写 mongo_map。

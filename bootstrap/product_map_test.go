@@ -12,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
+	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
-	"github.com/kalaGN/gin-finapi/pkg/config"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
 	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"github.com/kalaGN/gin-finapi/pkg/request"
@@ -48,15 +48,21 @@ func TestLoanQuery_UsesProductMapThroughAuthenticatedRoute(t *testing.T) {
 				}
 				return map[string]int{"other": 1, "last": 5}, nil
 			}
-			query := newLoanQuery(config.MongoDBConfig{DSN: "test-dsn", Database: "test-db", Collection: "test-collection"}, load, func(ctx context.Context, cfg mongo.Config) (map[string]int, error) {
+			query, err := queryloan.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
+				mapping, err := load(ctx, pcode)
+				return mapping, queryError(err)
+			}, func(ctx context.Context, phone string, mapping map[string]int) (map[string]int, error) {
 				if tc.mappingErr != nil {
 					t.Fatal("Mongo queried for invalid mapping")
 				}
-				if cfg.Query != "0123456789abcdef0123" || cfg.DB != "test-db" || cfg.Collection != "test-collection" || cfg.DSN != "test-dsn" {
+				if phone != "0123456789abcdef0123" {
 					t.Fatal("query config changed")
 				}
-				return mongo.ProcessUserData(cfg.Mapping, []string{"10", "20", "30", "40", "50", "60"})
+				return mongo.ProcessUserData(mapping, []string{"10", "20", "30", "40", "50", "60"})
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			handler, err := loan.NewLoanHandler(query, func(string, int) (string, error) { return "test-sid", nil }, nil)
 			if err != nil {
 				t.Fatal(err)

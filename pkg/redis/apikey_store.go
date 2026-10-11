@@ -10,22 +10,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
 )
 
 var (
-	ErrAPIKeyInvalid   = errors.New("API key is invalid")
-	ErrAuthUnavailable = errors.New("authentication service unavailable")
+	ErrAPIKeyInvalid   = auth.ErrInvalid
+	ErrAuthUnavailable = auth.ErrUnavailable
 )
 
-// APIKeyCredential is a complete credential snapshot. Secret must never be logged.
-type APIKeyCredential struct {
-	Version   int    `json:"version"`
-	Secret    string `json:"secret"`
-	Status    int    `json:"status"`
-	ExpiresAt int64  `json:"expires_at"`
-}
+// APIKeyCredential 保留旧名称，与认证边界的凭据快照类型一致；Secret 禁止写日志。
+type APIKeyCredential = auth.Credential
 
 // APIKeys owns a read-only Redis connection pool. It does not cache credentials.
 type APIKeys struct {
@@ -41,16 +37,13 @@ func APIKeyRedisKey(apiKey string) string {
 	return "gin-finapi:auth:apikey:v1:" + hex.EncodeToString(sum[:])
 }
 
-// NewAPIKeys constructs a lazy reader using the existing Redis configuration.
+// NewAPIKeys 使用统一客户端选项创建独立、懒连接的认证读取器。
 func NewAPIKeys(cfg config.RedisConfig) (*APIKeys, error) {
-	if cfg.Addr == "" || cfg.PoolSize <= 0 || cfg.DB < 0 || cfg.Timeout <= 0 {
-		return nil, errors.New("invalid Redis authentication configuration")
+	client, err := NewClientWithConfig(cfg)
+	if err != nil {
+		return nil, err
 	}
-	client := driver.NewClient(&driver.Options{
-		Addr: cfg.Addr, Password: cfg.Password, DB: cfg.DB, PoolSize: cfg.PoolSize,
-		DialTimeout: cfg.Timeout, ReadTimeout: cfg.Timeout, WriteTimeout: cfg.Timeout,
-		ContextTimeoutEnabled: true, MaxRetries: -1,
-	})
+
 	return &APIKeys{get: func(ctx context.Context, key string) (string, error) {
 		return client.Get(ctx, key).Result()
 	}, close: client.Close, timeout: cfg.Timeout, now: time.Now}, nil

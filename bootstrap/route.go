@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
+	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
@@ -17,8 +18,8 @@ import (
 )
 
 // NewRouter 根据启动配置和依赖装配 HTTP 处理器与中间件。
-// Redis/MongoDB 均按需连接；调用方负责执行返回的 Redis 关闭函数。
-func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func() error, error) {
+// Redis/MongoDB 均按需连接；调用方负责执行返回的依赖关闭函数。
+func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(context.Context) error, error) {
 	maps, err := appredis.NewProductMaps(cfg.Redis)
 	if err != nil {
 		return nil, nil, err
@@ -27,26 +28,47 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func() er
 	if err != nil {
 		return nil, nil, errors.Join(err, maps.Close())
 	}
-	closeRedis := func() error { return errors.Join(keys.Close(), maps.Close()) }
-	handler, err := loan.NewLoanHandler(
-		newLoanQuery(cfg.MongoDB, maps.Load, mongo.GetMongo), utils.GenerateSID, log,
-	)
+	store, err := mongo.NewStore(cfg.MongoDB)
 	if err != nil {
-		return nil, nil, errors.Join(err, closeRedis())
+		return nil, nil, errors.Join(err, keys.Close(), maps.Close())
+	}
+	closeDependencies := func(ctx context.Context) error { return errors.Join(store.Close(ctx), keys.Close(), maps.Close()) }
+	query, err := queryloan.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
+		mapping, err := maps.Load(ctx, pcode)
+		return mapping, queryError(err)
+	}, func(ctx context.Context, phone string, mapping map[string]int) (map[string]int, error) {
+		data, err := store.Query(ctx, phone, mapping)
+		return data, queryError(err)
+	})
+	if err != nil {
+		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
+	}
+	handler, err := loan.NewLoanHandler(query, utils.GenerateSID, log)
+	if err != nil {
+		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
 	}
 	router := gin.New()
 	SetupRoute(router, handler.Create, middleware.LoanAuth(keys.Load), log, cfg.RateLimit)
-	return router, closeRedis, nil
+	return router, closeDependencies, nil
 }
 
-// newLoanQuery 先读取产品映射，再查询 Mongo；配置异常不访问 Mongo。
-func newLoanQuery(cfg config.MongoDBConfig, load func(context.Context, int) (map[string]int, error), query func(context.Context, mongo.Config) (map[string]int, error)) loan.QueryFunc {
-	return func(ctx context.Context, phone string, pcode int) (map[string]int, error) {
-		mapping, err := load(ctx, pcode)
-		if err != nil {
-			return nil, err
-		}
-		return query(ctx, mongo.Config{DSN: cfg.DSN, DB: cfg.Database, Collection: cfg.Collection, Query: phone, Mapping: mapping})
+// queryError 在装配适配边界转换存储错误，HTTP 和查询用例不依赖存储包。
+func queryError(err error) error {
+	switch {
+	case errors.Is(err, appredis.ErrProductMapping):
+		return errors.Join(queryloan.ErrProductMapping, err)
+	case errors.Is(err, appredis.ErrMappingUnavailable):
+		return errors.Join(queryloan.ErrUnavailable, err)
+	case errors.Is(err, mongo.ErrNotFound):
+		return errors.Join(queryloan.ErrNotFound, err)
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return err
+	case errors.Is(err, mongo.ErrUnavailable):
+		return errors.Join(queryloan.ErrUnavailable, err)
+	case errors.Is(err, mongo.ErrInvalidData):
+		return errors.Join(queryloan.ErrInvalidData, err)
+	default:
+		return err
 	}
 }
 

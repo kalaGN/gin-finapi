@@ -1,9 +1,12 @@
 package mongo
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/kalaGN/gin-finapi/pkg/config"
 )
 
 func TestDecodeUserData_PreservesAllVariableMappings(t *testing.T) {
@@ -29,7 +32,16 @@ func TestDecodeUserData_UsesSuppliedMappingWithoutFallback(t *testing.T) {
 	if _, err := decodeUserData(data, nil); !errors.Is(err, ErrInvalidData) {
 		t.Fatal("missing mapping accepted")
 	}
-	if _, err := GetMongo(nil, Config{}); !errors.Is(err, ErrInvalidData) {
+	store, err := NewStore(config.MongoDBConfig{DSN: "mongodb://localhost:27017", Database: "test", MaxPool: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := store.Query(context.Background(), "test", nil); !errors.Is(err, ErrInvalidData) {
 		t.Fatal("query accepted missing mapping")
 	}
 	if _, err := decodeUserData(data, map[string]int{"selected": 2}); !errors.Is(err, ErrInvalidData) {

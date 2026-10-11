@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -14,31 +15,18 @@ import (
 
 type clientManager struct {
 	mu         sync.Mutex
+	closed     bool
 	client     *mongo.Client
 	connect    func(context.Context) (*mongo.Client, error)
 	disconnect func(context.Context, *mongo.Client) error
 }
 
-var clients = clientManager{
-	connect: connectMongoClient,
-	disconnect: func(ctx context.Context, client *mongo.Client) error {
-		return client.Disconnect(ctx)
-	},
-}
-
-// GetClient 获取全局 MongoDB 客户端（单例模式 + 连接池）
-func GetClient(ctx context.Context) (*mongo.Client, error) {
-	return clients.get(ctx)
-}
-
-// Close 关闭 MongoDB 连接
-func Close(ctx context.Context) error {
-	return clients.close(ctx)
-}
-
 func (manager *clientManager) get(ctx context.Context) (*mongo.Client, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.closed {
+		return nil, fmt.Errorf("%w: store is closed", ErrUnavailable)
+	}
 
 	if manager.client != nil {
 		return manager.client, nil
@@ -53,6 +41,7 @@ func (manager *clientManager) get(ctx context.Context) (*mongo.Client, error) {
 
 func (manager *clientManager) close(ctx context.Context) error {
 	manager.mu.Lock()
+	manager.closed = true
 	client := manager.client
 	manager.client = nil
 	manager.mu.Unlock()
@@ -63,8 +52,7 @@ func (manager *clientManager) close(ctx context.Context) error {
 	return manager.disconnect(ctx, client)
 }
 
-func connectMongoClient(ctx context.Context) (*mongo.Client, error) {
-	cfg := config.GetMongoConfig()
+func connectMongoClientWithConfig(ctx context.Context, cfg config.MongoDBConfig) (*mongo.Client, error) {
 	if cfg.DSN == "" {
 		return nil, fmt.Errorf("%w: DSN is empty", ErrUnavailable)
 	}
@@ -84,39 +72,10 @@ func connectMongoClient(ctx context.Context) (*mongo.Client, error) {
 	if err := client.Ping(ctx, nil); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = client.Disconnect(cleanupCtx)
-		return nil, classifyMongoError("ping", err)
+		cleanupErr := client.Disconnect(cleanupCtx)
+		return nil, errors.Join(classifyMongoError("ping", err), cleanupErr)
 	}
 
 	log.Println("MongoDB connected with connection pool")
-	return client, nil
-}
-
-// connectToMongoDB 是未接入主链路的旧连接入口，本次仅搬移，保留原行为。
-func connectToMongoDB(ctx context.Context, dsn string) (*mongo.Client, error) {
-	if dsn == "" {
-		return nil, fmt.Errorf("invalid DSN")
-	}
-
-	// 设置连接选项
-	clientOptions := options.Client().ApplyURI(dsn)
-
-	// 设置连接超时时间
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	// 连接到 MongoDB
-	client, err := mongo.Connect(ctx, clientOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	// 检查连接是否成功
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Println("Connected to MongoDB!")
 	return client, nil
 }

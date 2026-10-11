@@ -28,14 +28,11 @@ type ProductMaps struct {
 
 // NewProductMaps 创建可复用客户端，不在装配时连接 Redis。
 func NewProductMaps(cfg config.RedisConfig) (*ProductMaps, error) {
-	if cfg.Addr == "" || cfg.PoolSize <= 0 || cfg.DB < 0 || cfg.Timeout <= 0 {
-		return nil, errors.New("invalid Redis product mapping configuration")
+	client, err := NewClientWithConfig(cfg)
+	if err != nil {
+		return nil, err
 	}
-	client := driver.NewClient(&driver.Options{
-		Addr: cfg.Addr, Password: cfg.Password, DB: cfg.DB, PoolSize: cfg.PoolSize,
-		DialTimeout: cfg.Timeout, ReadTimeout: cfg.Timeout, WriteTimeout: cfg.Timeout,
-		ContextTimeoutEnabled: true, MaxRetries: -1,
-	})
+
 	return &ProductMaps{
 		hget: func(ctx context.Context, key, field string) (string, error) {
 			return client.HGet(ctx, key, field).Result()

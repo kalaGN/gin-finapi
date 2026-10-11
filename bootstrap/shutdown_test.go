@@ -1,4 +1,4 @@
-package main
+package bootstrap
 
 import (
 	"context"
@@ -10,11 +10,11 @@ import (
 func TestShutdownResources_ClosesHTTPBeforeMongo(t *testing.T) {
 	var calls []string
 	err := shutdownResources(
-		context.Background(),
 		func(context.Context) error {
 			calls = append(calls, "http")
 			return nil
 		},
+		nil,
 		func(context.Context) error {
 			calls = append(calls, "mongo")
 			return nil
@@ -34,8 +34,8 @@ func TestShutdownResources_AttemptsBothAndJoinsErrors(t *testing.T) {
 	mongoCalled := false
 
 	err := shutdownResources(
-		context.Background(),
 		func(context.Context) error { return httpErr },
+		nil,
 		func(context.Context) error {
 			mongoCalled = true
 			return mongoErr
@@ -52,10 +52,14 @@ func TestShutdownResources_AttemptsBothAndJoinsErrors(t *testing.T) {
 func TestShutdownResources_ClosesRedisAfterHTTPAndMongoFailures(t *testing.T) {
 	want := errors.New("Redis close failed")
 	var calls []string
-	err := shutdownResources(context.Background(),
-		func(context.Context) error { calls = append(calls, "http"); return errors.New("HTTP failed") },
-		func(context.Context) error { calls = append(calls, "mongo"); return errors.New("Mongo failed") },
-		func() error { calls = append(calls, "redis"); return want },
+	err := shutdownResources(func(context.Context) error { calls = append(calls, "http"); return errors.New("HTTP failed") },
+		nil,
+		func(context.Context) error {
+			calls = append(calls, "mongo")
+			mongoErr := errors.New("Mongo failed")
+			calls = append(calls, "redis")
+			return errors.Join(mongoErr, want)
+		},
 	)
 	if !reflect.DeepEqual(calls, []string{"http", "mongo", "redis"}) || !errors.Is(err, want) {
 		t.Fatalf("calls=%v error=%v", calls, err)

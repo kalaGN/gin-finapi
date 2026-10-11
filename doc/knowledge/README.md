@@ -8,7 +8,7 @@ Knowledge 只记录已确认的项目事实、当前实现和历史决策。强�
 
 | 文件 | 内容 | 使用场景 | 可信度与限制 |
 | --- | --- | --- | --- |
-| [`project_analysis.md`](project_analysis.md) | 当前仓库形态、调用链、Mongo 同包职责、Redis 产品映射、质量与风险审计 | 规划、评审、整改排序 | 以标注日期和提交为基线；变更后需复核 |
+| [`project_analysis.md`](project_analysis.md) | 当前调用链、P1/P2 生命周期/实例配置/业务边界、Redis 映射与历史风险审计 | 规划、评审、整改排序 | 最新节覆盖历史描述；真实外部集成与容量仍待验证 |
 | [`performance_test_report.md`](performance_test_report.md) | 2025-11-15 macOS / Go 1.23.3 的本地 ab 数据 | 性能历史对比 | 非生产容量承诺；部分原因和建议是未验证推测 |
 | [`gin_migration_design.md`](gin_migration_design.md) | 从 Iris 迁移到 Gin 的历史设计 | 追溯迁移背景 | 当前迁移已完成；“当前 Iris/目标 Gin”等描述已过期 |
 | [`../../README.md`](../../README.md) | 项目使用说明 | 本地启动和接口概览 | 2026-10-11 同步 phone 原值查询与 Redis API Key；Docker 仍是非可执行历史示意 |

@@ -7,15 +7,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/gin-finapi/pkg/mongo"
-	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
+	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/sirupsen/logrus"
 )
 
 type CommonRes = request.Response
-type QueryFunc func(context.Context, string, int) (map[string]int, error)
+type QueryFunc = queryloan.QueryFunc
 type SIDFunc func(string, int) (string, error)
 
 var errPhoneConversionUnavailable = errors.New("SHA-256 phone conversion service is not connected")
@@ -79,16 +78,14 @@ func (h *LoanHandler) Create(c *gin.Context) {
 func (h *LoanHandler) writeQueryError(c *gin.Context, err error) {
 	h.logInternalError("query loan data")
 	switch {
-	case errors.Is(err, appredis.ErrProductMapping):
+	case errors.Is(err, queryloan.ErrProductMapping):
 		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrProductException, Msg: rescode.GetCodeMsg(rescode.ErrProductException)})
-	case errors.Is(err, appredis.ErrMappingUnavailable):
+	case errors.Is(err, queryloan.ErrUnavailable):
 		c.JSON(http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
-	case errors.Is(err, mongo.ErrNotFound):
+	case errors.Is(err, queryloan.ErrNotFound):
 		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrDataNotFound, Msg: rescode.GetCodeMsg(rescode.ErrDataNotFound)})
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		c.JSON(http.StatusGatewayTimeout, CommonRes{Status: rescode.ErrTimeout, Msg: rescode.GetCodeMsg(rescode.ErrTimeout)})
-	case errors.Is(err, mongo.ErrUnavailable):
-		c.JSON(http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 	default:
 		c.JSON(http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 	}

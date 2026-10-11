@@ -48,14 +48,11 @@ func runRedisInit(pcode int, authSamples bool) (err error) {
 		return err
 	}
 	cfg := config.Config.Redis
-	if cfg.Addr == "" || cfg.DB < 0 || cfg.PoolSize <= 0 || cfg.Timeout <= 0 {
-		return errors.New("Redis 初始化配置无效")
+	client, err := appredis.NewClientWithConfig(cfg)
+	if err != nil {
+		return err
 	}
-	client := redis.NewClient(&redis.Options{
-		Addr: cfg.Addr, Password: cfg.Password, DB: cfg.DB, PoolSize: cfg.PoolSize,
-		DialTimeout: cfg.Timeout, ReadTimeout: cfg.Timeout, WriteTimeout: cfg.Timeout,
-		ContextTimeoutEnabled: true, MaxRetries: -1,
-	})
+
 	defer func() { err = errors.Join(err, client.Close()) }()
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()

@@ -12,6 +12,23 @@ LoanAuth 已改为每次 GET 独立 Redis String 凭据，使用每 Key secret �
 
 ## 1. 分析结论
 
+### 2026-10-11 P1/P2 架构边界修复
+
+本节覆盖下文较早的全局 Mongo、Handler 直连存储和启动 Fatal 描述。
+事实来源：bootstrap/app.go、lifecycle.go、route.go、app/loan/query.go、app/auth/credential.go、
+pkg/mongo/store.go、pkg/redis/client.go，以及对应测试和 CI。
+
+- main 只管理信号与退出码，Run 统一启动/服务错误/清理；日志不直接输出底层错误。
+- HTTP 与依赖分别使用独立 5s Context；Shutdown 失败尝试 Close，后续 Mongo/Redis 清理不跳过。
+  服务退出等待有额外 5s 保护，不是严格 10s 硬上限，生产终止宽限时间待确认。
+- 主链路使用 Mongo Store 的实例配置、客户端和超时，关闭未初始化实例不连接，关闭后拒绝重开。
+  用户确认后已移除旧 GetMongo/GetClient/包级 Close，查询和关闭仅通过 Store 实例。
+- app/loan 负责加载映射后查询数据；装配适配层转换存储错误，Handler 只依赖业务语义。
+  app/auth 定义凭据与认证错误，中间件不直接依赖 Redis 类型。
+- Redis 统一客户端选项，认证/产品映射各自拥有一个池；PoolSize 分别作用于每池，不是全应用上限。
+- Redis CLI 保持单文件运行，CI 显式覆盖独立 vet、竞态测试和编译；不运行或写入外部数据。
+- 没有新增依赖、API、产品授权、数据迁移、缓存或重试；实际 Redis/Mongo 故障集成和容量未验证。
+
 Gin FinAPI 当前是一个体量较小、调用链直接的 Go/Gin API 查询服务。项目可以正常编译，已有单元测试、竞态检测和静态检查均通过，但业务测试覆盖不足，安全、错误治理、并发安全和模块边界仍有明显缺口。
 
 当前实现更适合作为可继续迭代的功能原型。在完成密钥管理、认证校验、日志脱敏、MongoDB 故障恢复和业务测试补齐之前，不建议直接作为高流量生产服务部署。
@@ -59,8 +76,9 @@ POST /loan
 
 | 目录或文件 | 职责 | 当前状态 |
 | --- | --- | --- |
-| `main.go` | 配置加载、Gin 初始化、HTTP Server 和优雅关闭 | 已接入 |
-| `bootstrap/` | 注册全局中间件及路由 | 已接入 |
+| `main.go` | 信号、Run 和退出码 | 已接入 |
+| `bootstrap/` | 应用依赖装配、HTTP 生命周期、资源关闭和路由注册 | 已接入 |
+| `app/loan/`、`app/auth/` | 存储无关的查询流程与认证语义 | 已接入 |
 | `routes/` | 健康检查和贷款路由 | 已接入 |
 | `app/Http/controllers/loan/` | phone 归一化、SID、注入查询和 HTTP 响应映射 | SHA-256 转换为 TODO，返回 503/9002 |
 | `app/middleware/` | CORS、日志、限流和认证 | 部分为占位实现 |
@@ -157,13 +175,13 @@ SID 已改用 `crypto/rand` 和拒绝采样；随机源错误向上传播，Loan
 位置：`pkg/mongo/client.go`（2026-10-11 从 mongo.go 同包搬移）
 
 Mongo 客户端改为互斥保护的生命周期管理器，只有 Connect + Ping 成功才缓存；首次失败可重试，
-并发初始化只发布一个客户端，关闭后可重新初始化。Ping 失败会尝试释放候选客户端。
+并发初始化只发布一个客户端；当前 Store 关闭后禁止重新初始化。Ping 失败会尝试释放候选客户端。
 
 剩余边界：尚未增加启动期 Mongo readiness 和真实断线恢复集成测试。
 
-2026-10-11 已按同包职责拆分：mongo.go 保留查询和配置补全，client.go 管理连接，
+2026-10-11 已按同包职责拆分：store.go 管理实例配置和查询，mongo.go 定义 BSON 类型及超时解析，client.go 管理连接，
 codec.go 解压 gzip、校验 CSV 并映射变量，errors.go 定义和分类错误。
-BSON t/v、gzip/CSV、导出入口、错误、超时和连接行为不变；旧 connectToMongoDB 仍保留，未接入主链路。
+BSON t/v、gzip/CSV、查询错误和超时契约不变；按用户要求删除旧全局导出入口及未使用的 connectToMongoDB。
 新增离线特征测试覆盖实际 BSON 查询和文档类型、完整六变量映射及异常数据；不代表真实 Mongo 集成验证。
 
 2026-10-11 产品映射已改为 Redis Hash `mongo_map`：field 为十进制 pcode，value 为非空 JSON 对象，
@@ -219,14 +237,14 @@ HTTP Handler
 
 ### 5.9 P2：配置入口重复
 
-MongoDB 配置同时存在于：
+历史上 MongoDB 配置同时存在于：
 
 - `pkg/config`；
 - `pkg/env`；
 - Controller 构造的 `mongo.Config`；
 - `GetMongo` 内部再次读取环境变量。
 
-当前主调用链已统一从 `pkg/config` 读取，`GetMongo` 会优先采用传入值并以应用配置补缺；
+当前主调用链已统一从 `pkg/config` 读取并注入 Store 配置快照，`mongo.Config` 和 `GetMongo` 已删除；
 `pkg/env` 仍是未删除的重复遗留工具。
 
 建议只保留统一的配置加载入口，并通过依赖注入将数据库或 Repository 传给 Service。
@@ -237,7 +255,7 @@ MongoDB 配置同时存在于：
 - `LoanRepository` 只有接口，没有实现；
 - `LoanRequest` 模型未使用；
 - gRPC 只有 HelloWorld 示例；
-- `connectToMongoDB` 是未使用的旧连接实现；
+- `connectToMongoDB` 原为未使用的旧连接实现，现已按用户要求删除；
 - 遗留认证中间件有占位逻辑，当前 LoanAuth 已提供配置账号鉴权。
 
 这些代码会增加理解成本并制造“功能已经具备”的错觉。应明确近期用途，否则删除或移入示例目录。

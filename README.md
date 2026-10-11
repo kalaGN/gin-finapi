@@ -18,6 +18,8 @@ gin-finapi/
 ├── app/
 │   ├── Http/controllers/    # 控制器层
 │   │   └── loan/            # 贷款业务
+│   ├── loan/               # 查询用例与稳定错误语义
+│   ├── auth/               # 不依赖存储的认证凭据与错误
 │   ├── middleware/          # 中间件
 │   │   ├── loan_auth.go     # JSON API Key + 签名鉴权
 │   │   ├── cors.go          # CORS
@@ -26,7 +28,7 @@ gin-finapi/
 
 │   ├── models/              # 数据模型
 │   └── repositories/        # 数据仓库
-├── bootstrap/               # 启动引导
+├── bootstrap/               # 依赖装配、HTTP 生命周期和关闭
 ├── pkg/                     # 工具包
 │   ├── config/              # 配置管理
 │   ├── env/                 # 环境变量
@@ -50,13 +52,13 @@ gin-finapi/
 - ✅ **认证鉴权** - Redis API Key + timestamp/sign；phone 原值查询
 
 ### 数据库连接池
-- ✅ **MongoDB 连接池** - 单例模式，最大 100 连接
-- ✅ **Redis 连接池** - 复用产品映射客户端；限流仍在进程内，不使用 Redis
+- ✅ **MongoDB 连接池** - 主链路由独立 Store 持有配置和懒连接，默认最大 100 连接
+- ✅ **Redis 连接池** - 认证/产品映射各自复用一个池；REDIS_POOL_SIZE 分别作用于每池，不是应用总上限
 - ✅ **优雅关闭** - 资源自动清理
 
 ### 配置管理
 - ✅ **环境变量驱动** - 符合 12-Factor App 原则
-- ✅ **默认值支持** - 启动校验 Mongo、签名密钥、API Key
+- ✅ **默认值支持** - 启动校验 Mongo/Redis 配置；API Key 与签名密钥从 Redis 凭据读取
 - ✅ **多环境支持** - 开发/测试/生产环境隔离
 
 ## 快速开始
@@ -226,7 +228,10 @@ HSET mongo_map 10001 '{"var100001":0,"var100002":1,"var100003":2,"var100004":3,"
 映射必须为非空 JSON 对象，字段名非空、索引为非负整数；重复字段、null、小数和溢出索引拒绝。
 映射缺失或无效返回 HTTP 200/status 6001/产品异常；Redis 读失败或超时返回 HTTP 503/status 9002。
 不使用硬编码回退或本地缓存。Mongo t/v、gzip/CSV 格式不变，CSV 长度仍必须等于最大映射索引加一。
-生产客户端随正常关闭释放；现有启动 goroutine Fatal 的生命周期风险仍待独立方案处理。
+`main` 只处理信号和退出码，`bootstrap.Run` 装配并管理运行；启动或服务失败也进入依赖清理。
+正常关闭为 HTTP → Mongo Store → Redis，HTTP/依赖各有独立 5s 预算；HTTP Shutdown 失败时强制 Close。
+服务 goroutine 退出等待另设 5s 保护，整个过程不承诺严格 10s 硬上限；需匹配部署终止宽限时间。
+Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除旧 GetMongo/GetClient/包级 Close 入口。
 
 ## 开发
 
