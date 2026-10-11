@@ -23,15 +23,20 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func() er
 	if err != nil {
 		return nil, nil, err
 	}
+	keys, err := appredis.NewAPIKeys(cfg.Redis)
+	if err != nil {
+		return nil, nil, errors.Join(err, maps.Close())
+	}
+	closeRedis := func() error { return errors.Join(keys.Close(), maps.Close()) }
 	handler, err := loan.NewLoanHandler(
 		newLoanQuery(cfg.MongoDB, maps.Load, mongo.GetMongo), utils.GenerateSID, log,
 	)
 	if err != nil {
-		return nil, nil, errors.Join(err, maps.Close())
+		return nil, nil, errors.Join(err, closeRedis())
 	}
 	router := gin.New()
-	SetupRoute(router, handler.Create, middleware.LoanAuth(cfg.APIKey, cfg.SecretKey), log, cfg.RateLimit)
-	return router, maps.Close, nil
+	SetupRoute(router, handler.Create, middleware.LoanAuth(keys.Load), log, cfg.RateLimit)
+	return router, closeRedis, nil
 }
 
 // newLoanQuery 先读取产品映射，再查询 Mongo；配置异常不访问 Mongo。

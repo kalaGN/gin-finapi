@@ -58,7 +58,7 @@ go build ./...
 go build -o /tmp/gin-finapi main.go
 ```
 
-- `go run main.go` 需要 `SECRET_KEY`、`MONGODB_DSN`、`MONGODB_DATABASE`；真实值只通过未跟踪
+- `go run main.go` 需要 Redis 配置、`MONGODB_DSN`、`MONGODB_DATABASE`；真实值只通过未跟踪
   的 `.env` 或运行环境注入。
 - 格式门禁要求 `gofmt -l ...` 无输出。只格式化本次实际修改的 Go 文件，避免无关 diff。
 - 当前没有已确认覆盖率门槛或 Lint 工具；不得虚构门槛，也不得把未配置工具设为必跑命令。
@@ -129,8 +129,8 @@ LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootst
 - phone 是非空字符串，签名使用原始完整值；32 位十六进制 MD5 截前 20 位查 t，保留大小写。
   SHA-256（64 位十六进制）需后续服务映射为原手机号 MD5，目前 TODO，返回 503/9002，不直接查询。
   既有 20 位及其他历史非空标识保持原值兼容，不解密或对摘要重新哈希。
-- /loan 认证中间件要求 JSON apikey 精确匹配 API_KEY，Body 上限 64 KiB，只解析一次。
-- 签名当前把原始 `phone`、`pcode`、`apikey`、`timestamp` 按 key 排序拼接，加 `SECRET_KEY` 后计算
+- /loan 认证中间件通过 JSON apikey 的 SHA-256 摘要读取 Redis String 凭据并验证启停和到期，Body 上限 64 KiB，只解析一次。
+- 签名当前把原始 `phone`、`pcode`、`apikey`、`timestamp` 按 key 排序拼接，加对应凭据 `secret` 后计算
   大写 MD5。该算法存在安全/演进风险，但在确认客户端兼容前不得擅自替换。
 - 成功数据字段由 mongo_map 的产品映射决定；既有六变量示例仍可配置。变更映射须核对 CSV 列序和客户端兼容。
 - 产品映射缺失或无效为 200/6001；Redis 不可用（包括读取超时）为 503/9002，不回退或误报未查得。
@@ -227,12 +227,13 @@ go build ./...
 ### 已确认机制
 
 - `.env` 和 `*.ini` 被 `.gitignore` 忽略；`.env.example` 只包含占位值。
-- 启动时校验 SECRET_KEY、API_KEY、Mongo DSN 和数据库名非空，不再依赖 PHONE_AES_KEY。
-- `/loan` 校验五分钟时间戳、配置 API Key、原值 phone 的 MD5 签名，认证通过后原样查询。
+- 启动时校验 Redis 配置、Mongo DSN 和数据库名非空，不再依赖 PHONE_AES_KEY。
+- `/loan` 校验五分钟时间戳、Redis API Key、原值 phone 的 MD5 签名，认证通过后原样查询。
 
 ### 已确认缺口
 
-- LoanAuth 校验单个配置 API Key；没有多账号、状态、主体或细粒度权限系统，历史多级缓存方案仍为草案。
+- LoanAuth 每次读取独立 Redis String 凭据，支持多 Key、独立 secret、禁用与到期；没有账号层或产品授权校验，历史多级缓存方案仍为草案。
+- 凭据缺失/禁用/到期返回 400/2001；Redis 故障/损坏记录返回 503/9002，不允许环境变量兜底或自动写入。
 - 请求日志只记录安全元数据，不读取或缓存 Body；传输仍需 HTTPS。
 - 签名仍使用 MD5，但比较已使用常量时间实现；五分钟内仍没有 nonce/幂等防重放机制。
 - CORS 为 `*`；允许来源、凭据需求和反向代理信任边界待确认。

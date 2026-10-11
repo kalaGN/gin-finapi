@@ -17,7 +17,6 @@ import (
 func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.AppConfig{
-		APIKey: "test-key", SecretKey: "test-secret",
 		MongoDB:   config.MongoDBConfig{DSN: "invalid-test-dsn"},
 		Redis:     config.RedisConfig{Addr: "127.0.0.1:1", PoolSize: 1, Timeout: time.Second},
 		RateLimit: config.RateLimitConfig{Requests: 100, Window: time.Second},
@@ -40,15 +39,15 @@ func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 		name, key  string
 		http, code int
 	}{
-		{"reject wrong key", "wrong-key", http.StatusBadRequest, 2001},
-		{"authenticated SHA256 reaches handler", cfg.APIKey, http.StatusServiceUnavailable, 9002},
+		{"Redis unavailable rejects unknown key", "wrong-key", http.StatusServiceUnavailable, 9002},
+		{"Redis unavailable rejects configured key", "test-key", http.StatusServiceUnavailable, 9002},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := map[string]interface{}{
 				"phone": strings.Repeat("b", 64), "pcode": 10001,
 				"apikey": tc.key, "timestamp": time.Now().UnixMilli(),
 			}
-			body["sign"] = utils.GenerateSign(body, cfg.SecretKey)
+			body["sign"] = utils.GenerateSign(body, "test-secret")
 			data, err := json.Marshal(body)
 			if err != nil {
 				t.Fatal(err)

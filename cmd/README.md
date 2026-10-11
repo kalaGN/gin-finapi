@@ -23,6 +23,31 @@ go test -race cmd/init_redis.go cmd/init_redis_test.go
 go vet cmd/init_redis.go
 ```
 
+## API Key 与产品 String KV 样例
+
+显式添加 `-auth-samples` 才写入认证样例，默认仍只写 mongo_map。
+确认隔离 Redis 目标后，设置 `INIT_API_KEY`、`INIT_API_SECRET`，再运行：
+
+```bash
+# 以下仅为本地测试占位凭据，不用于生产。
+export INIT_API_KEY='example-test-key'
+export INIT_API_SECRET='example-test-secret'
+go run cmd/init_redis.go -pcode 10001 -auth-samples
+```
+
+新增两个 String Key：
+
+- `gin-finapi:auth:apikey:v1:<sha256(apikey)>`：
+  `{"version":1,"secret":"<INIT_API_SECRET>","status":1,"expires_at":0}`。
+- `gin-finapi:auth:apikey-product:v1:<sha256(apikey)>:10001`：
+  `{"version":1,"status":1,"expires_at":0}`。
+
+两条记录使用 SET NX，不覆盖已有记录或其 TTL，不输出 Key、摘要或 secret。
+样例启用且永不过期，无 Redis TTL；仅适用于明确指定的测试环境。
+三个写操作（映射、凭据、授权）不是事务，失败可能已部分写入；可重试补齐，
+但“保留已有值”不代表已有值正确或匹配传入 secret。
+产品授权记录仅作为未来结构样例，当前服务尚未执行产品授权校验。
+
 ## MongoDB 初始化工具
 
 ## 功能说明

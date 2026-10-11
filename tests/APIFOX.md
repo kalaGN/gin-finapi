@@ -5,7 +5,7 @@
 ## 导入
 1. Apifox 项目设置 → 导入数据 → Postman，选择 gin-finapi.postman_collection.json。
 2. 同样导入 gin-finapi.postman_environment.json；选中导入的测试环境。
-3. 在本机环境配置 api_key、secret_key，使其匹配测试服务 API_KEY、SECRET_KEY；不要提交真实值。
+3. 在本机环境配置 api_key、secret_key，使其匹配隔离 Redis 中的 API Key 凭据及其 secret；不要提交真实值。
 4. 确认服务前置URL为 base_url，默认 http://127.0.0.1:8083；导入转换后可能需要在环境的服务中手动确认。
 5. 检查每个用例前置脚本、后置断言均已导入。前置脚本重写JSON Body，生成当前毫秒时间戳和大写MD5签名。
 6. 如需批量回归，在自动化测试中引用导入的接口用例；不要默认加入手动故障组。
@@ -22,7 +22,7 @@ SHA256转换待接入、缺少phone、null/数字phone、字符串/越界pcode�
 每个用例包含确定的HTTP和业务码断言；成功用例检查SID与六个变量。
 
 当前签名只包含 apikey、pcode、phone、timestamp，按key排序形成
-apikey=...&pcode=...&phone=...&timestamp=...&key=SECRET_KEY，再MD5并转大写。
+apikey=...&pcode=...&phone=...&timestamp=...&key=<对应凭据secret>，再MD5并转大写。
 nonce和URL query不参与签名。使用请求原始完整phone，不能先截断再签名。
 旧样例的20位形态和nonce已保留，标识替换为合成数据，避免持久保存真实请求信息。
 

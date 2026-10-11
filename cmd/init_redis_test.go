@@ -6,8 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -65,6 +68,59 @@ func TestSeedRedisMappingRejectsInvalidPcode(t *testing.T) {
 		fake := &fakeRedisInitializer{}
 		if _, err := seedRedisMapping(context.Background(), fake, pcode); err == nil || fake.calls != 0 {
 			t.Fatalf("pcode=%d err=%v calls=%d", pcode, err, fake.calls)
+		}
+	}
+}
+
+type fakeRedisAuthInitializer struct {
+	keys     []string
+	values   []string
+	existing map[string]bool
+	failAt   int
+}
+
+func (fake *fakeRedisAuthInitializer) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.BoolCmd {
+	fake.keys = append(fake.keys, key)
+	fake.values = append(fake.values, value.(string))
+	if ttl != 0 {
+		panic("unexpected TTL")
+	}
+	if len(fake.keys) == fake.failAt {
+		return redis.NewBoolResult(false, errors.New("sensitive-error"))
+	}
+	return redis.NewBoolResult(!fake.existing[key], nil)
+}
+func TestSeedRedisAuthSamples(t *testing.T) {
+	key := appredis.APIKeyRedisKey("test-key")
+	productKey := strings.Replace(key, "apikey:v1:", "apikey-product:v1:", 1) + ":10002"
+	for _, existing := range []bool{false, true} {
+		fake := &fakeRedisAuthInitializer{existing: map[string]bool{key: existing, productKey: existing}}
+		added, productAdded, err := seedRedisAuthSamples(context.Background(), fake, 10002, "test-key", "secret\"with-escape")
+		if err != nil || added == existing || productAdded == existing || !reflect.DeepEqual(fake.keys, []string{key, productKey}) {
+			t.Fatal("incorrect sample writes")
+		}
+		var credential appredis.APIKeyCredential
+		if err := json.Unmarshal([]byte(fake.values[0]), &credential); err != nil || credential.Secret != "secret\"with-escape" || credential.Status != 1 || credential.ExpiresAt != 0 {
+			t.Fatal("invalid credential sample")
+		}
+		if fake.values[1] != `{"version":1,"status":1,"expires_at":0}` {
+			t.Fatal("invalid product sample")
+		}
+	}
+}
+func TestSeedRedisAuthSamples_Failures(t *testing.T) {
+	for _, tc := range []struct {
+		pcode             int
+		key, secret       string
+		failAt, wantCalls int
+	}{
+		{10000, "key", "secret", 0, 0}, {10001, "", "secret", 0, 0}, {10001, "key", "", 0, 0}, {10001, "key", strings.Repeat("s", 257), 0, 0},
+		{10001, "key", "secret", 1, 1}, {10001, "key", "secret", 2, 2},
+	} {
+		fake := &fakeRedisAuthInitializer{failAt: tc.failAt}
+		_, _, err := seedRedisAuthSamples(context.Background(), fake, tc.pcode, tc.key, tc.secret)
+		if err == nil || len(fake.keys) != tc.wantCalls || strings.Contains(err.Error(), "sensitive-error") {
+			t.Fatal("invalid failure handling")
 		}
 	}
 }

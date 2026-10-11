@@ -1,0 +1,139 @@
+package redis
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/kalaGN/gin-finapi/pkg/config"
+	driver "github.com/redis/go-redis/v9"
+)
+
+var (
+	ErrAPIKeyInvalid   = errors.New("API key is invalid")
+	ErrAuthUnavailable = errors.New("authentication service unavailable")
+)
+
+// APIKeyCredential is a complete credential snapshot. Secret must never be logged.
+type APIKeyCredential struct {
+	Version   int    `json:"version"`
+	Secret    string `json:"secret"`
+	Status    int    `json:"status"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+// APIKeys owns a read-only Redis connection pool. It does not cache credentials.
+type APIKeys struct {
+	get     func(context.Context, string) (string, error)
+	close   func() error
+	timeout time.Duration
+	now     func() time.Time
+}
+
+// APIKeyRedisKey derives the storage key without exposing the original credential.
+func APIKeyRedisKey(apiKey string) string {
+	sum := sha256.Sum256([]byte(apiKey))
+	return "gin-finapi:auth:apikey:v1:" + hex.EncodeToString(sum[:])
+}
+
+// NewAPIKeys constructs a lazy reader using the existing Redis configuration.
+func NewAPIKeys(cfg config.RedisConfig) (*APIKeys, error) {
+	if cfg.Addr == "" || cfg.PoolSize <= 0 || cfg.DB < 0 || cfg.Timeout <= 0 {
+		return nil, errors.New("invalid Redis authentication configuration")
+	}
+	client := driver.NewClient(&driver.Options{
+		Addr: cfg.Addr, Password: cfg.Password, DB: cfg.DB, PoolSize: cfg.PoolSize,
+		DialTimeout: cfg.Timeout, ReadTimeout: cfg.Timeout, WriteTimeout: cfg.Timeout,
+		ContextTimeoutEnabled: true, MaxRetries: -1,
+	})
+	return &APIKeys{get: func(ctx context.Context, key string) (string, error) {
+		return client.Get(ctx, key).Result()
+	}, close: client.Close, timeout: cfg.Timeout, now: time.Now}, nil
+}
+
+// Load distinguishes denied credentials from unavailable or corrupt storage.
+func (keys *APIKeys) Load(ctx context.Context, apiKey string) (APIKeyCredential, error) {
+	if apiKey == "" {
+		return APIKeyCredential{}, ErrAPIKeyInvalid
+	}
+	readCtx, cancel := context.WithTimeout(ctx, keys.timeout)
+	defer cancel()
+	raw, err := keys.get(readCtx, APIKeyRedisKey(apiKey))
+	if errors.Is(err, driver.Nil) {
+		return APIKeyCredential{}, ErrAPIKeyInvalid
+	}
+	// Do not propagate driver errors: they can contain credentials or record content.
+	if err != nil {
+		return APIKeyCredential{}, ErrAuthUnavailable
+	}
+	credential, err := parseAPIKeyCredential(raw)
+	if err != nil {
+		return APIKeyCredential{}, err
+	}
+	if credential.Status != 1 || credential.ExpiresAt != 0 && keys.now().Unix() >= credential.ExpiresAt {
+		return APIKeyCredential{}, ErrAPIKeyInvalid
+	}
+	return credential, nil
+}
+
+// Close releases the reader's pool without modifying Redis records.
+func (keys *APIKeys) Close() error { return keys.close() }
+
+func parseAPIKeyCredential(raw string) (APIKeyCredential, error) {
+	invalid := func() (APIKeyCredential, error) { return APIKeyCredential{}, ErrAuthUnavailable }
+	if len(raw) > 4<<10 {
+		return invalid()
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return invalid()
+	}
+	fields := make(map[string]json.RawMessage)
+	for decoder.More() {
+		token, err = decoder.Token()
+		if err != nil {
+			return invalid()
+		}
+		name, ok := token.(string)
+		if !ok {
+			return invalid()
+		}
+		if _, exists := fields[name]; exists {
+			return invalid()
+		}
+		switch name {
+		case "version", "secret", "status", "expires_at":
+		default:
+			return invalid()
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil || string(value) == "null" {
+			return invalid()
+		}
+		fields[name] = value
+	}
+	if token, err = decoder.Token(); err != nil || token != json.Delim('}') || len(fields) != 4 {
+		return invalid()
+	}
+	if err := decoder.Decode(new(interface{})); err != io.EOF {
+		return invalid()
+	}
+	var credential APIKeyCredential
+	if json.Unmarshal(fields["version"], &credential.Version) != nil ||
+		json.Unmarshal(fields["secret"], &credential.Secret) != nil ||
+		json.Unmarshal(fields["status"], &credential.Status) != nil ||
+		json.Unmarshal(fields["expires_at"], &credential.ExpiresAt) != nil {
+		return invalid()
+	}
+	if credential.Version != 1 || credential.Secret == "" || len(credential.Secret) > 256 ||
+		credential.Status < 0 || credential.Status > 1 || credential.ExpiresAt < 0 {
+		return invalid()
+	}
+	return credential, nil
+}

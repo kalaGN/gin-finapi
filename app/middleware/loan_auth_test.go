@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,7 +47,7 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 			tt.mutate(b)
 			data, _ := json.Marshal(b)
 			r := gin.New()
-			r.POST("/loan", LoanAuth("key", "secret"), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
+			r.POST("/loan", LoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
 			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
@@ -80,7 +82,7 @@ func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			r.POST("/loan", LoanAuth(tt.key, tt.secret), func(c *gin.Context) {
+			r.POST("/loan", LoanAuth(testKeyReader(tt.key, tt.secret)), func(c *gin.Context) {
 				body, ok := request.Authenticated(c)
 				if !ok || body.Phone.Value != "ciphertext" {
 					t.Fatal("authenticated request not available")
@@ -124,5 +126,50 @@ func TestLogger_DoesNotCaptureSensitivePayloads(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "http_status") {
 		t.Fatal("missing request metadata")
+	}
+}
+
+func TestLoanAuth_RedisCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, signSecret string
+		readErr               error
+		wantHTTP, wantCode    int
+	}{
+		{"first key", "key-a", "secret-a", nil, 204, 0},
+		{"second key", "key-b", "secret-b", nil, 204, 0},
+		{"cross secret", "key-b", "secret-a", nil, 400, 2002},
+		{"denied", "key-a", "secret-a", appredis.ErrAPIKeyInvalid, 400, 2001},
+		{"unavailable", "key-a", "secret-a", appredis.ErrAuthUnavailable, 503, 9002},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": tc.key, "timestamp": time.Now().UnixMilli()}
+			body["sign"] = utils.GenerateSign(body, tc.signSecret)
+			data, _ := json.Marshal(body)
+			called := false
+			router := gin.New()
+			router.POST("/loan", LoanAuth(func(ctx context.Context, key string) (appredis.APIKeyCredential, error) {
+				if ctx == nil || key != tc.key {
+					t.Fatal("incorrect lookup")
+				}
+				secrets := map[string]string{"key-a": "secret-a", "key-b": "secret-b"}
+				return appredis.APIKeyCredential{Version: 1, Status: 1, Secret: secrets[key]}, tc.readErr
+			}), func(c *gin.Context) { called = true; c.Status(204) })
+			req := httptest.NewRequest("POST", "/loan", bytes.NewReader(data))
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			if response.Code != tc.wantHTTP || called != (tc.wantHTTP == 204) {
+				t.Fatalf("HTTP=%d called=%v", response.Code, called)
+			}
+			if tc.wantCode != 0 {
+				var result request.Response
+				if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if result.Status != tc.wantCode {
+					t.Fatal("incorrect business code")
+				}
+			}
+		})
 	}
 }

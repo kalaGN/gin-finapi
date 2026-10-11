@@ -13,7 +13,8 @@ Redis Hash `mongo_map` 按 pcode 提供 JSON 变量映射；Repository/Model 和
 - 核心处理：`app/Http/controllers/loan/index.go`（注入式 LoanHandler）、`pkg/mongo/mongo.go`。
 - `/loan` 认证：`app/middleware/loan_auth.go`；MD5 phone 截前 20 位查 t，旧标识兼容。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
-- 必填认证配置：`API_KEY`、`SECRET_KEY`。
+- `/loan` 凭据来自 Redis String `gin-finapi:auth:apikey:v1:<sha256(apikey)>`，每 Key 独立 secret、status、expires_at；不读取 API_KEY/SECRET_KEY，不自动写入。
+- API Key 缺失/禁用/到期为 400/2001；Redis 故障或损坏凭据为 503/9002。API Key–产品授权尚未启用。
 - 产品映射：`pkg/redis/product_map.go`；缺失或无效为 200/6001，Redis 故障为 503/9002。
 - Redis 使用既有 REDIS_* 配置，新增 `REDIS_TIMEOUT` 默认 1s；禁止自动写入或覆盖产品映射。
 - 测试数据 CLI：`cmd/init_mongo.go`。它会删除并重建 16 个集合，未经明确授权不得运行。

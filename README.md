@@ -47,7 +47,7 @@ gin-finapi/
 - ✅ **异常恢复** - 使用 Gin 内置 Recovery
 - ✅ **CORS 支持** - 跨域请求处理
 - ✅ **限流保护** - 单进程按 IP 限流（5000 req/s）
-- ✅ **认证鉴权** - 配置 API Key + timestamp/sign；phone 原值查询
+- ✅ **认证鉴权** - Redis API Key + timestamp/sign；phone 原值查询
 
 ### 数据库连接池
 - ✅ **MongoDB 连接池** - 单例模式，最大 100 连接
@@ -81,8 +81,7 @@ cp .env.example .env
 # 服务器配置
 SERVER_PORT=8082
 ENV=development
-SECRET_KEY=replace_with_a_strong_random_secret
-API_KEY=replace_with_client_api_key
+# 凭据通过受控维护写入 Redis，服务不读取 API_KEY/SECRET_KEY
 RATE_LIMIT_REQUESTS=5000
 RATE_LIMIT_WINDOW=1s
 
@@ -164,8 +163,8 @@ Content-Type: application/json
 phone 是非空字符串：完整 32 位十六进制 MD5 截前 20 位查 Mongo t，保留大小写；
 既有 20 位查询标识继续原样查询。64 位十六进制 SHA-256 的转换服务尚未接入（TODO），
 当前返回 HTTP 503 + 9002，不直接查库或对摘要再哈希。其他历史非空值沿用原值兼容。
-签名按原规则对 phone、pcode、apikey、timestamp 排序拼接，加 SECRET_KEY 后做大写 MD5。
-请求 apikey 必须精确等于 API_KEY；timestamp 为过去五分钟内的 Unix 毫秒。
+签名按原规则对 phone、pcode、apikey、timestamp 排序拼接，加该 API Key 对应的 secret 后做大写 MD5。
+请求 apikey 必须对应 Redis 中启用且未到期的凭据；timestamp 为过去五分钟内的 Unix 毫秒。
 上面的 timestamp 和 sign 只是结构示意，联调时需要实时生成。
 [设计与请求示例](doc/specs/20261011-请求加密鉴权-设计.md)。
 
@@ -197,8 +196,6 @@ URL 参数和 nonce 不参与当前 JSON 验签；PHONE_AES_KEY 不再读取或�
 |--------|------|--------|------|
 | `SERVER_PORT` | 服务端口 | `8082` | 否 |
 | `ENV` | 运行环境 | `production` | 否 |
-| `SECRET_KEY` | 请求签名密钥 | - | 是 |
-| `API_KEY` | 单个合法客户端 API Key | - | 是 |
 | `RATE_LIMIT_REQUESTS` | 每个 IP 在窗口内允许的次数，正整数 | `5000` | 否 |
 | `RATE_LIMIT_WINDOW` | 限流窗口，正 Go duration，例如 `1s`、`500ms` | `1s` | 否 |
 | `MONGODB_DSN` | MongoDB 连接字符串 | - | 是 |
@@ -262,7 +259,7 @@ LoanAuth 专用于本项目 Loan JSON 契约；旧 AuthRequired/APIKeyAuth 仍�
 ## Docker 部署
 
 仓库目前没有 Dockerfile，以下为历史部署示意，不能直接作为可执行部署流程。
-上线必须安全注入 SECRET_KEY、API_KEY，不把密钥写入镜像或命令历史。
+上线前必须由受控维护方准备 Redis 凭据记录，不把密钥写入镜像或命令历史。
 
 ```bash
 # 构建镜像
@@ -301,3 +298,20 @@ docker run -d \
 ## 许可证
 
 MIT License
+
+### Redis API Key 凭据
+
+`POST /loan` 每次通过 GET 读取
+`gin-finapi:auth:apikey:v1:<sha256(apikey)>`（摘要为原始 Key 的小写十六进制 SHA-256）。
+String Value 严格使用以下 JSON，示例仅为占位：
+
+```json
+{"version":1,"secret":"<injected-secret>","status":1,"expires_at":0}
+```
+
+status 为 0/1；expires_at 为 Unix 秒，0 永不过期，当前时间达到到期值即拒绝。
+secret 为 1–256 字节，记录最大 4 KiB；拒绝缺失、重复、未知字段和错误类型。
+未知、禁用、到期 Key 返回 HTTP 400/status 2001；Redis 故障或记录损坏返回 503/9002。
+服务不自动创建记录，也不回退环境变量。请在部署切换前确认目标 Redis 并迁移旧凭据；
+使用受控工具 SET NX 导入，避免覆盖；配置存储需具备持久化、备份和防淘汰措施。
+本轮未提供或执行写入工具。API Key–产品授权结构已设计，尚未启用校验。

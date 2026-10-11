@@ -1,21 +1,21 @@
 package middleware
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 // LoanAuth 单次解析 JSON，校验 API Key 和原始 phone 的签名。
-func LoanAuth(apiKey, secret string) gin.HandlerFunc {
-	expectedKey := sha256.Sum256([]byte(apiKey))
+func LoanAuth(load func(context.Context, string) (appredis.APIKeyCredential, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reject := func(code int, message string) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, request.Response{Status: code, Msg: message})
@@ -52,9 +52,21 @@ func LoanAuth(apiKey, secret string) gin.HandlerFunc {
 			reject(rescode.ErrInvalidPcode, rescode.GetCodeMsg(rescode.ErrInvalidPcode))
 			return
 		}
-		actualKey := sha256.Sum256([]byte(body.Apikey))
-		if apiKey == "" || secret == "" || body.Apikey == "" || subtle.ConstantTimeCompare(actualKey[:], expectedKey[:]) != 1 {
+		if body.Apikey == "" {
 			reject(rescode.ErrInvalidApikey, rescode.GetCodeMsg(rescode.ErrInvalidApikey))
+			return
+		}
+		if load == nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
+			return
+		}
+		credential, err := load(c.Request.Context(), body.Apikey)
+		if errors.Is(err, appredis.ErrAPIKeyInvalid) {
+			reject(rescode.ErrInvalidApikey, rescode.GetCodeMsg(rescode.ErrInvalidApikey))
+			return
+		}
+		if err != nil || credential.Secret == "" {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 			return
 		}
 		if !body.Timestamp.Set || body.Timestamp.Err != nil {
@@ -73,7 +85,7 @@ func LoanAuth(apiKey, secret string) gin.HandlerFunc {
 			"phone": body.Phone.Value, "pcode": int(body.Pcode.Value),
 			"apikey": body.Apikey, "timestamp": body.Timestamp.Value,
 		}
-		if !utils.VerifySign(params, body.Sign, secret) {
+		if !utils.VerifySign(params, body.Sign, credential.Secret) {
 			reject(rescode.ErrInvalidSign, rescode.GetCodeMsg(rescode.ErrInvalidSign))
 			return
 		}

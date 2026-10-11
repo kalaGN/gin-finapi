@@ -12,8 +12,6 @@ type AppConfig struct {
 	Server    ServerConfig
 	MongoDB   MongoDBConfig
 	Redis     RedisConfig
-	SecretKey string
-	APIKey    string
 	RateLimit RateLimitConfig
 }
 
@@ -98,8 +96,6 @@ func Load() error {
 			PoolSize: getEnvIntWithDefault("REDIS_POOL_SIZE", 10),
 			Timeout:  redisTimeout,
 		},
-		SecretKey: os.Getenv("SECRET_KEY"),
-		APIKey:    os.Getenv("API_KEY"),
 		RateLimit: rateLimit,
 	}
 
@@ -148,14 +144,6 @@ func GetRedisConfig() RedisConfig {
 	return Config.Redis
 }
 
-// GetSecretKey 获取请求签名密钥
-func GetSecretKey() string {
-	if Config == nil {
-		_ = Load()
-	}
-	return Config.SecretKey
-}
-
 // LoadPort 保持向后兼容
 func LoadPort() (string, error) {
 	if Config == nil {
@@ -177,14 +165,8 @@ func (c *AppConfig) Validate() error {
 	if c.MongoDB.Database == "" {
 		return fmt.Errorf("MongoDB database is required")
 	}
-	if c.SecretKey == "" {
-		return fmt.Errorf("secret key is required")
-	}
-	if c.APIKey == "" {
-		return fmt.Errorf("API key is required")
-	}
 	if c.Redis.Addr == "" || c.Redis.DB < 0 || c.Redis.PoolSize <= 0 || c.Redis.Timeout <= 0 {
-		return fmt.Errorf("invalid Redis product mapping configuration")
+		return fmt.Errorf("invalid Redis configuration")
 	}
 	if err := c.RateLimit.Validate(); err != nil {
 		return err

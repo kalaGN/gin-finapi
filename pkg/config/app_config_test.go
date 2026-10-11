@@ -11,8 +11,6 @@ func TestAppConfigValidate_RequiredValues(t *testing.T) {
 		Server:    ServerConfig{Port: "8082"},
 		MongoDB:   MongoDBConfig{DSN: "mongodb://example.invalid", Database: "airis"},
 		Redis:     RedisConfig{Addr: "localhost:6379", PoolSize: 10, Timeout: time.Second},
-		SecretKey: "secret",
-		APIKey:    "test-key",
 		RateLimit: RateLimitConfig{Requests: 5000, Window: time.Second},
 	}
 
@@ -28,11 +26,9 @@ func TestAppConfigValidate_RequiredValues(t *testing.T) {
 		{name: "zero Redis timeout", mutate: func(config *AppConfig) { config.Redis.Timeout = 0 }, wantErr: "Redis"},
 		{name: "zero rate", mutate: func(config *AppConfig) { config.RateLimit.Requests = 0 }, wantErr: "RATE_LIMIT_REQUESTS"},
 		{name: "zero window", mutate: func(config *AppConfig) { config.RateLimit.Window = 0 }, wantErr: "RATE_LIMIT_WINDOW"},
-		{name: "missing API key", mutate: func(config *AppConfig) { config.APIKey = "" }, wantErr: "API key"},
 		{name: "missing port", mutate: func(config *AppConfig) { config.Server.Port = "" }, wantErr: "server port"},
 		{name: "missing Mongo DSN", mutate: func(config *AppConfig) { config.MongoDB.DSN = "" }, wantErr: "MongoDB DSN"},
 		{name: "missing Mongo database", mutate: func(config *AppConfig) { config.MongoDB.Database = "" }, wantErr: "MongoDB database"},
-		{name: "missing secret", mutate: func(config *AppConfig) { config.SecretKey = "" }, wantErr: "secret key"},
 	}
 
 	for _, test := range tests {
@@ -72,8 +68,8 @@ func TestLoad_ReadsEnvironmentAndDefaults(t *testing.T) {
 	t.Setenv("MONGODB_COLLECTION", "")
 	t.Setenv("MONGODB_MAX_POOL", "invalid")
 	t.Setenv("MONGODB_MIN_POOL", "3")
-	t.Setenv("SECRET_KEY", "test-secret")
-	t.Setenv("API_KEY", "test-key")
+	t.Setenv("SECRET_KEY", "")
+	t.Setenv("API_KEY", "")
 	t.Setenv("PHONE_AES_KEY", "") // Legacy AES configuration is no longer required.
 
 	if err := Load(); err != nil {
