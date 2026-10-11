@@ -6,6 +6,7 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`specs/20261011-Mongo职责整理-设计.md`](specs/20261011-Mongo职责整理-设计.md) | Specs / 设计 | Mongo 同包职责整理方案及验证，已实施 | Mongo 内部重构 |
 | [`../AGENTS.md`](../AGENTS.md) | 入口 | 项目定位、命令、红线和渐进加载入口 | 每次 AI Coding 任务 |
 | [`rules/`](rules/README.md) | Rules 索引 | 长期强制规则和 Spec 管理规范 | 所有代码和文档变更 |
 | [`rules/project_rules.md`](rules/project_rules.md) | Rules | 项目、架构、契约、编码、测试、安全、可靠性、性能、数据、Git 与 AI 规则 | 所有代码和文档变更 |

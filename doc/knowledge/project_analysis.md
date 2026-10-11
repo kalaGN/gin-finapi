@@ -147,12 +147,18 @@ SID 已改用 `crypto/rand` 和拒绝采样；随机源错误向上传播，Loan
 
 ### 5.5 已整改：MongoDB 首次初始化失败后无法恢复
 
-位置：`pkg/mongo/mongo.go`
+位置：`pkg/mongo/client.go`（2026-10-11 从 mongo.go 同包搬移）
 
 Mongo 客户端改为互斥保护的生命周期管理器，只有 Connect + Ping 成功才缓存；首次失败可重试，
 并发初始化只发布一个客户端，关闭后可重新初始化。Ping 失败会尝试释放候选客户端。
 
 剩余边界：尚未增加启动期 Mongo readiness 和真实断线恢复集成测试。
+
+2026-10-11 已按同包职责拆分：mongo.go 保留查询和配置补全，client.go 管理连接，
+codec.go 解压 gzip、校验 CSV 并映射六变量，errors.go 定义和分类错误。
+BSON t/v、gzip/CSV、导出入口、错误、超时和连接行为不变；旧 connectToMongoDB 仍保留，未接入主链路。
+新增离线特征测试覆盖实际 BSON 查询和文档类型、完整六变量映射及异常数据；不代表真实 Mongo 集成验证。
+启动、错误通道与关闭策略仍待另一份 Spec 确认，本次未实施。
 
 ### 5.6 已整改：核心 Mongo 错误分类及对外泄露
 

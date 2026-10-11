@@ -93,6 +93,8 @@ LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootst
 - 路由只负责公开路径、方法和 Handler 绑定；全局中间件装配放在 `bootstrap/`。
 - HTTP 解析和响应转换保持在 Handler/Controller 边界；可复用纯逻辑放在已有 `pkg/` 能力中。
 - Mongo 访问和 BSON/压缩格式处理放在数据访问边界，不向新 Handler 复制连接或解压逻辑。
+- Mongo 保持同包分工：`mongo.go` 负责查询与配置补全，`client.go` 负责客户端生命周期，
+  `codec.go` 负责 gzip/CSV 解码与变量映射，`errors.go` 负责错误分类；解码函数不得承担数据库 I/O。
 - 配置应从单一已加载对象读取。当前 `pkg/config` 与 `pkg/env` 重复是已知债务，新增代码不得扩大。
 - 新抽象必须解决已出现的复用、隔离外部依赖或可测试性问题；单次调用不创建空壳层。
 - 禁止循环依赖。通用包不得反向导入 Controller、Route 或 Bootstrap。
