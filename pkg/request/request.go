@@ -1,4 +1,4 @@
-// Package request defines shared HTTP request and response types.
+// Package request 定义共享的 HTTP 请求与响应类型。
 package request
 
 import (
@@ -60,7 +60,7 @@ func (v *StrictInteger) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// SetAuthenticated is called only after the authentication middleware succeeds.
+// SetAuthenticated 仅在认证中间件校验成功后保存请求。
 func SetAuthenticated(c *gin.Context, request Request) {
 	c.Set(contextKey, request)
 }

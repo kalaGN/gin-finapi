@@ -7,7 +7,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Logger records metadata only; loan payloads and credentials must not be logged.
+// Logger 只记录请求元信息，不记录业务请求体或认证凭据。
 func Logger(log *logrus.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

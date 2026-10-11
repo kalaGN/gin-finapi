@@ -13,7 +13,7 @@ import (
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
-// LoanAuth parses once and authenticates the JSON API Key and original phone signature.
+// LoanAuth 单次解析 JSON，校验 API Key 和原始 phone 的签名。
 func LoanAuth(apiKey, secret string) gin.HandlerFunc {
 	expectedKey := sha256.Sum256([]byte(apiKey))
 	return func(c *gin.Context) {
@@ -31,7 +31,7 @@ func LoanAuth(apiKey, secret string) gin.HandlerFunc {
 			reject(rescode.ErrInvalidJSON, rescode.GetCodeMsg(rescode.ErrInvalidJSON))
 			return
 		}
-		// Require a single JSON value and read through EOF to enforce the body limit.
+		// 只允许一个 JSON 值，并读到 EOF，确保请求体大小限制生效。
 		if err := decoder.Decode(new(interface{})); err != io.EOF {
 			reject(rescode.ErrInvalidJSON, rescode.GetCodeMsg(rescode.ErrInvalidJSON))
 			return

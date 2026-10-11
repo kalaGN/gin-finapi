@@ -25,17 +25,17 @@ func phoneLookupKey(phone string) (string, error) {
 			if len(phone) == 32 {
 				return phone[:20], nil
 			}
-			// TODO: Call the future phone conversion service to map SHA-256(phone)
-			// to MD5(phone), then use the first 20 characters of that MD5.
-			// Do not hash the SHA-256 string: that would produce a different lookup key.
+			// TODO: 接入后续手机号转换服务，将 SHA-256(phone) 映射为 MD5(phone)，
+			// 再取 MD5 的前 20 位作为查询标识。
+			// 不得对 SHA-256 字符串重新哈希，否则得到的查询标识与原手机号不一致。
 			return "", errPhoneConversionUnavailable
 		}
 	}
-	// Preserve existing shortened identifiers and legacy nonempty lookup values.
+	// 兼容已有的截短标识和历史非空查询值，保持原样查询。
 	return phone, nil
 }
 
-// LoanHandler handles authenticated requests with explicitly supplied dependencies.
+// LoanHandler 使用显式注入的依赖处理已认证请求。
 type LoanHandler struct {
 	query       QueryFunc
 	generateSID SIDFunc
@@ -66,7 +66,7 @@ func (h *LoanHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 		return
 	}
-	// Authentication uses the full request phone; conversion only affects the query.
+	// 认证使用请求中的完整 phone，转换仅影响数据库查询标识。
 	result, err := h.query(c.Request.Context(), queryKey)
 	if err != nil {
 		h.writeQueryError(c, err)
@@ -91,7 +91,7 @@ func (h *LoanHandler) writeQueryError(c *gin.Context, err error) {
 
 func (h *LoanHandler) logInternalError(operation string) {
 	if h.log != nil {
-		// Driver errors can contain credentials or query values; log only the operation.
+		// 驱动错误可能包含凭据或查询值，因此日志只记录操作名称。
 		h.log.WithField("operation", operation).Error("Request processing failed")
 	}
 }

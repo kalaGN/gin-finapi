@@ -14,8 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// NewRouter assembles HTTP handlers and middleware from startup dependencies.
-// MongoDB connections remain lazy and are not opened during router creation.
+// NewRouter 根据启动配置和依赖装配 HTTP 处理器与中间件。
+// MongoDB 连接仍按需初始化，创建路由时不会连接数据库。
 func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, error) {
 	mongoConfig := cfg.MongoDB
 	handler, err := loan.NewLoanHandler(
