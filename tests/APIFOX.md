@@ -15,9 +15,10 @@
 - [兼容脚本](https://docs.apifox.com/scripts)
 
 ## 内容
-共18个请求：health、20位查询、MD5截断查询、Query/JSON不同、未查得、
+共21个请求：health、20位查询、MD5截断查询、Query/JSON不同、未查得、
 SHA256转换待接入、缺少phone、null/数字phone、字符串/越界pcode、
-错误apikey、过期/未来timestamp、错误/缺少sign、损坏gzip、Mongo不可用。
+错误apikey、过期/未来timestamp、错误/缺少sign、损坏gzip、Mongo不可用、
+产品映射缺失、产品映射JSON无效、Redis不可用。
 每个用例包含确定的HTTP和业务码断言；成功用例检查SID与六个变量。
 
 当前签名只包含 apikey、pcode、phone、timestamp，按key排序形成
@@ -26,13 +27,29 @@ nonce和URL query不参与签名。使用请求原始完整phone，不能先截�
 旧样例的20位形态和nonce已保留，标识替换为合成数据，避免持久保存真实请求信息。
 
 ## Fixture（仅独立测试库）
-这些文件不插入或删除任何Mongo数据；需要人工准备：
+这些文件不写入 Redis 或 Mongo；需要人工准备：
+
+全部需要 Mongo 的用例（含未查得、损坏 gzip、Mongo 不可用）先在独立测试 Redis 配置
+`mongo_map` Hash 的 `10001` 字段为以下 JSON，确保 Redis 正常可访问：
+
+```json
+{"var100001":0,"var100002":1,"var100003":2,"var100004":3,"var100005":4,"var100006":5}
+```
+
+每个请求先读取产品映射，再查 Mongo；不会自动回退默认映射。Mongo Fixture：
+
 - short_phone：t等于该环境值，v为BSON二进制 gzip("1,2,3,4,5,6")。
 - md5_phone：t为其前20位，v同上。
 - missing_phone：确保没有匹配文档。
 - corrupt_phone：t等于该值，v为非gzip二进制。
 服务的 MONGODB_DATABASE / MONGODB_COLLECTION 必须指向该独立测试数据。
 禁止运行 cmd/init_mongo.go 为这些用例准备数据；它会删除重建集合。
+
+产品映射缺失用例使用环境变量 `missing_pcode`（默认 99998），确认该测试字段不存在。
+JSON 无效用例使用 `invalid_map_pcode`（默认 99997），仅在隔离测试 Redis 中预置为 `not-json`。
+不要删除或覆盖任何现有生产产品配置；两例均预期 HTTP 200/6001，无需 Mongo Fixture。
+Redis 不可用用例仅针对专用故障实例，使用不可连接的 Redis 地址，预期 HTTP 503/9002。
+`REDIS_TIMEOUT` 默认为 1s；Redis 读取截止超时也属于 503/9002，而不是 Mongo 的 504/9003。
 
 Mongo不可用用例仅针对专用故障服务，配置不可连接的Mongo端口。
 不允许停止业务数据库。该例期待503/9002；Context截止超时是另一分支504/9003，

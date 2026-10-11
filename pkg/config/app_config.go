@@ -55,12 +55,17 @@ type RedisConfig struct {
 	Password string
 	DB       int
 	PoolSize int
+	Timeout  time.Duration
 }
 
 var Config *AppConfig
 
 // Load 从环境变量加载配置
 func Load() error {
+	redisTimeout, err := time.ParseDuration(getEnvWithDefault("REDIS_TIMEOUT", "1s"))
+	if err != nil || redisTimeout <= 0 {
+		return fmt.Errorf("REDIS_TIMEOUT must be a positive duration")
+	}
 	requests, err := strconv.Atoi(getEnvWithDefault("RATE_LIMIT_REQUESTS", "5000"))
 	if err != nil {
 		return fmt.Errorf("RATE_LIMIT_REQUESTS must be a positive integer")
@@ -91,6 +96,7 @@ func Load() error {
 			Password: os.Getenv("REDIS_PASSWORD"),
 			DB:       getEnvIntWithDefault("REDIS_DB", 0),
 			PoolSize: getEnvIntWithDefault("REDIS_POOL_SIZE", 10),
+			Timeout:  redisTimeout,
 		},
 		SecretKey: os.Getenv("SECRET_KEY"),
 		APIKey:    os.Getenv("API_KEY"),
@@ -176,6 +182,9 @@ func (c *AppConfig) Validate() error {
 	}
 	if c.APIKey == "" {
 		return fmt.Errorf("API key is required")
+	}
+	if c.Redis.Addr == "" || c.Redis.DB < 0 || c.Redis.PoolSize <= 0 || c.Redis.Timeout <= 0 {
+		return fmt.Errorf("invalid Redis product mapping configuration")
 	}
 	if err := c.RateLimit.Validate(); err != nil {
 		return err

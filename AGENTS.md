@@ -4,7 +4,7 @@
 
 Gin FinAPI 是一个单仓库、单 Go module 的 Gin HTTP 查询服务。当前真实启用的接口为
 `GET /health` 和 `POST /loan`；Loan 请求查询 MongoDB 中的 gzip 数据并映射为变量结果。
-仓库中的 Redis、Repository/Model 和 HelloWorld gRPC 代码尚未进入主调用链。
+Redis Hash `mongo_map` 按 pcode 提供 JSON 变量映射；Repository/Model 和 HelloWorld gRPC 尚未进入主调用链。
 
 ## 技术与入口
 
@@ -14,7 +14,10 @@ Gin FinAPI 是一个单仓库、单 Go module 的 Gin HTTP 查询服务。当前
 - `/loan` 认证：`app/middleware/loan_auth.go`；MD5 phone 截前 20 位查 t，旧标识兼容。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
 - 必填认证配置：`API_KEY`、`SECRET_KEY`。
+- 产品映射：`pkg/redis/product_map.go`；缺失或无效为 200/6001，Redis 故障为 503/9002。
+- Redis 使用既有 REDIS_* 配置，新增 `REDIS_TIMEOUT` 默认 1s；禁止自动写入或覆盖产品映射。
 - 测试数据 CLI：`cmd/init_mongo.go`。它会删除并重建 16 个集合，未经明确授权不得运行。
+- Redis 初始化：`cmd/init_redis.go`，HSETNX 写入产品映射；确认目标并获授权后才可运行。
 - 依赖锁定：`go.mod`、`go.sum`。CI 为最小 GitHub Actions 门禁
   （`.github/workflows/ci.yml`：`gofmt`、`go vet`、`go test -race`、`go build`）；
   仍未配置 Dockerfile、Kubernetes 及项目级 Lint 工具。

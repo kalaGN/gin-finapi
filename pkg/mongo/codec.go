@@ -8,19 +8,13 @@ import (
 	"strings"
 )
 
-func decodeUserData(data []byte) (map[string]int, error) {
+func decodeUserData(data []byte, varList map[string]int) (map[string]int, error) {
+	if len(varList) == 0 {
+		return nil, fmt.Errorf("%w: mapping is required", ErrInvalidData)
+	}
 	decompressedData, err := gzipDecompress(data)
 	if err != nil {
 		return nil, fmt.Errorf("%w: decompress payload: %v", ErrInvalidData, err)
-	}
-
-	varList := map[string]int{
-		"var100001": 0,
-		"var100002": 1,
-		"var100003": 2,
-		"var100004": 3,
-		"var100005": 4,
-		"var100006": 5,
 	}
 	return ProcessUserData(varList, strings.Split(string(decompressedData), ","))
 }

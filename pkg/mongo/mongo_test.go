@@ -140,21 +140,21 @@ func TestProcessUserData_StrictlyValidatesAllFields(t *testing.T) {
 }
 
 func TestDecodeUserData_RejectsCorruptPayload(t *testing.T) {
-	if _, err := decodeUserData([]byte("not gzip")); !errors.Is(err, ErrInvalidData) {
-		t.Fatalf("decodeUserData(corrupt) error = %v, want ErrInvalidData", err)
+	if _, err := decodeUserData([]byte("not gzip"), testVariableMapping()); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("decodeUserData(corrupt, testVariableMapping()) error = %v, want ErrInvalidData", err)
 	}
 
 	compressed := gzipBytes(t, []byte("1,2,3,4,5"))
-	if _, err := decodeUserData(compressed); !errors.Is(err, ErrInvalidData) {
-		t.Fatalf("decodeUserData(short payload) error = %v, want ErrInvalidData", err)
+	if _, err := decodeUserData(compressed, testVariableMapping()); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("decodeUserData(short payload, testVariableMapping()) error = %v, want ErrInvalidData", err)
 	}
 
-	got, err := decodeUserData(gzipBytes(t, []byte("1,2,3,4,5,6")))
+	got, err := decodeUserData(gzipBytes(t, []byte("1,2,3,4,5,6")), testVariableMapping())
 	if err != nil {
-		t.Fatalf("decodeUserData(valid payload) error = %v", err)
+		t.Fatalf("decodeUserData(valid payload, testVariableMapping()) error = %v", err)
 	}
 	if got["var100001"] != 1 || got["var100006"] != 6 {
-		t.Fatalf("decodeUserData(valid payload) = %#v", got)
+		t.Fatalf("decodeUserData(valid payload, testVariableMapping()) = %#v", got)
 	}
 }
 
@@ -204,4 +204,9 @@ func gzipBytes(t *testing.T, data []byte) []byte {
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+// testVariableMapping 只供测试使用，不是生产回退配置。
+func testVariableMapping() map[string]int {
+	return map[string]int{"var100001": 0, "var100002": 1, "var100003": 2, "var100004": 3, "var100005": 4, "var100006": 5}
 }

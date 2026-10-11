@@ -39,6 +39,7 @@ func (c *CodeDefine) GetMsg() string {
 // 3xxx     - 业务逻辑错误
 // 4xxx     - 数据库错误
 // 5xxx     - 外部服务错误
+// 6xxx     - 产品错误
 // 9xxx     - 系统错误
 
 const (
@@ -78,6 +79,9 @@ const (
 	ErrExternalService = 5000 // 外部服务错误
 	ErrRedisError      = 5001 // Redis错误
 	ErrHttpRequest     = 5002 // HTTP请求失败
+
+	// ========== 产品错误 (6xxx) ==========
+	ErrProductException = 6001 // 产品异常
 
 	// ========== 系统错误 (9xxx) ==========
 	ErrSystemError        = 9000 // 系统错误
@@ -128,6 +132,8 @@ var codeMessages = map[int]string{
 	ErrExternalService: "外部服务错误",
 	ErrRedisError:      "缓存服务错误",
 	ErrHttpRequest:     "HTTP请求失败",
+
+	ErrProductException: "产品异常",
 
 	// 系统错误
 	ErrSystemError:        "系统错误",

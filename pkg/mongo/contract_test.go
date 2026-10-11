@@ -51,7 +51,7 @@ func TestStoredDocument_PreservesBSONAndGzipCSV(t *testing.T) {
 	if document.T != "test-document-key" || !bytes.Equal(document.V, payload) {
 		t.Fatal("BSON decoding changed")
 	}
-	got, err := decodeUserData(document.V)
+	got, err := decodeUserData(document.V, testVariableMapping())
 	if err != nil {
 		t.Fatal(err)
 	}

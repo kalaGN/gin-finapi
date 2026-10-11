@@ -14,7 +14,7 @@
 - CI 为最小 GitHub Actions 门禁：`.github/workflows/ci.yml` 执行 `gofmt` 检查、`go vet ./...`、
   `go test -race ./...`、`go build ./...`，在 `main`/`dev` 推送和 Pull Request 时触发。
 - 未发现项目级 golangci-lint、Makefile、Dockerfile、Kubernetes、Nginx 或数据库迁移工具。
-- 当前功能边界是健康检查及按请求字段查询 MongoDB、解压并返回六个变量。Redis、gRPC Server、
+- 当前功能边界是健康检查、按 pcode 从 Redis 读取映射并查询 MongoDB、解压后映射变量。gRPC Server、
   Repository 实现、消息队列、GraphQL、定时任务均未确认进入运行链路。
 
 ### 目录职责
@@ -29,16 +29,16 @@
 | `pkg/config/` | 主调用链的环境配置入口 |
 | `pkg/env/` | 遗留的重复配置工具，当前未进入主调用链 |
 | `pkg/mongo/` | Mongo 客户端、查询、gzip 解压和变量映射 |
-| `pkg/redis/` | 未接入主链路的 Redis 封装 |
+| `pkg/redis/` | product_map.go 读取 Redis 产品映射；旧封装未接入主链路 |
 | `pkg/rescode/`、`pkg/utils/` | 业务码、SID、时间戳和签名工具 |
 | `app/protos/helloworld/` | 未接入 Server 的 Proto 示例及生成代码 |
-| `cmd/` | 会重建测试集合的 Mongo 初始化 CLI |
+| `cmd/` | 会重建测试集合的 Mongo CLI、用 HSETNX 保留已有产品映射的 Redis CLI |
 | `tests/bench/` | 有外部请求副作用的 Apache Bench 脚本 |
 
 ### 非目标
 
 - 不因“最佳实践”主动改成微服务、Clean Architecture、DDD 或新增 Service/Repository 层。
-- 不把未启用的 Redis、gRPC、认证中间件或部署方案描述成现有能力。
+- 不把未启用的旧 Redis 封装、gRPC 或部署方案描述成现有能力。
 - 不在无需求时升级 Go、框架、驱动或引入新的基础设施。
 - 不在文档任务中修复业务代码、清理遗留模块或改变 API 行为。
 
@@ -79,6 +79,7 @@ main.go
   → POST /loan
       → LoanAuth 单次 JSON/字段/API Key/时间戳/原值签名校验
       → LoanHandler 原样查询 phone
+      → Redis HGET mongo_map pcode，校验 JSON 字段映射
       → mongo.GetMongo
       → Mongo FindOne(t=phone)
       → gzip 解压 v → CSV 整数映射
@@ -131,7 +132,8 @@ LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootst
 - /loan 认证中间件要求 JSON apikey 精确匹配 API_KEY，Body 上限 64 KiB，只解析一次。
 - 签名当前把原始 `phone`、`pcode`、`apikey`、`timestamp` 按 key 排序拼接，加 `SECRET_KEY` 后计算
   大写 MD5。该算法存在安全/演进风险，但在确认客户端兼容前不得擅自替换。
-- 成功数据字段当前为 `var100001` 至 `var100006`。字段名、类型、缺省行为都是契约候选，变更需 Spec。
+- 成功数据字段由 mongo_map 的产品映射决定；既有六变量示例仍可配置。变更映射须核对 CSV 列序和客户端兼容。
+- 产品映射缺失或无效为 200/6001；Redis 不可用（包括读取超时）为 503/9002，不回退或误报未查得。
 - 当前没有分页、版本前缀、废弃策略或幂等键约定；标记“待确认”，不能自行创建。
 - CORS 当前允许任意 Origin；是否收紧取决于真实调用方和部署环境，需先确认。
 
@@ -188,7 +190,7 @@ LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootst
 
 - 使用 Go 标准 `testing`；测试覆盖 `pkg/utils`、`pkg/rescode`、Mongo、Loan Controller、路由、
   中间件、主程序关闭编排和 HelloWorld Proto 包。
-- Redis 及真实 Mongo 集成行为目前没有直接自动化测试；配置加载和必填校验已有单元测试。
+- Redis 产品映射已有离线解析、读取分类和 HTTP 编排测试；真实 Redis/Mongo 集成仍未验证。
 - 没有真实覆盖率门槛、集成测试环境或 E2E 门禁。
 
 ### 测试层级
@@ -302,7 +304,8 @@ go build ./...
 - 核心查询按集合字段 `t` 精确查找，字段 `v` 是 gzip 压缩的六个逗号分隔整数。
 - 初始化 CLI 为 `t` 创建唯一升序索引，并重建 `data_20251101_0` 至 `data_20251101_f`，但运行服务
   默认只读取配置指定集合；集合选择/分片规则待确认。
-- Redis 客户端存在但未接入核心数据路径。
+- Redis Hash mongo_map 已接入核心路径，以十进制 pcode 为 field、JSON 为 value。
+  不自动写入，读取继承请求 Context，并受 REDIS_TIMEOUT 限制；不缓存或回退硬编码映射。
 
 ### 规则
 

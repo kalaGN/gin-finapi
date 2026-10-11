@@ -10,6 +10,7 @@ func TestAppConfigValidate_RequiredValues(t *testing.T) {
 	valid := AppConfig{
 		Server:    ServerConfig{Port: "8082"},
 		MongoDB:   MongoDBConfig{DSN: "mongodb://example.invalid", Database: "airis"},
+		Redis:     RedisConfig{Addr: "localhost:6379", PoolSize: 10, Timeout: time.Second},
 		SecretKey: "secret",
 		APIKey:    "test-key",
 		RateLimit: RateLimitConfig{Requests: 5000, Window: time.Second},
@@ -21,6 +22,10 @@ func TestAppConfigValidate_RequiredValues(t *testing.T) {
 		wantErr string
 	}{
 		{name: "valid"},
+		{name: "missing Redis address", mutate: func(config *AppConfig) { config.Redis.Addr = "" }, wantErr: "Redis"},
+		{name: "negative Redis database", mutate: func(config *AppConfig) { config.Redis.DB = -1 }, wantErr: "Redis"},
+		{name: "zero Redis pool", mutate: func(config *AppConfig) { config.Redis.PoolSize = 0 }, wantErr: "Redis"},
+		{name: "zero Redis timeout", mutate: func(config *AppConfig) { config.Redis.Timeout = 0 }, wantErr: "Redis"},
 		{name: "zero rate", mutate: func(config *AppConfig) { config.RateLimit.Requests = 0 }, wantErr: "RATE_LIMIT_REQUESTS"},
 		{name: "zero window", mutate: func(config *AppConfig) { config.RateLimit.Window = 0 }, wantErr: "RATE_LIMIT_WINDOW"},
 		{name: "missing API key", mutate: func(config *AppConfig) { config.APIKey = "" }, wantErr: "API key"},
@@ -58,6 +63,10 @@ func TestLoad_ReadsEnvironmentAndDefaults(t *testing.T) {
 	t.Setenv("RATE_LIMIT_REQUESTS", "")
 	t.Setenv("RATE_LIMIT_WINDOW", "")
 	t.Setenv("ENV", "test")
+	t.Setenv("REDIS_ADDR", "localhost:6379")
+	t.Setenv("REDIS_DB", "0")
+	t.Setenv("REDIS_POOL_SIZE", "10")
+	t.Setenv("REDIS_TIMEOUT", "")
 	t.Setenv("MONGODB_DSN", "mongodb://example.invalid")
 	t.Setenv("MONGODB_DATABASE", "airis_test")
 	t.Setenv("MONGODB_COLLECTION", "")
@@ -123,6 +132,32 @@ func TestLoad_RateLimitConfiguration(t *testing.T) {
 			}
 			if Config.RateLimit.Requests != 12 || Config.RateLimit.Window != 250*time.Millisecond {
 				t.Fatalf("rate limit = %#v", Config.RateLimit)
+			}
+		})
+	}
+}
+
+func TestLoad_RedisTimeout(t *testing.T) {
+	previous := Config
+	t.Cleanup(func() { Config = previous })
+	for _, raw := range []string{"", "250ms", "0s", "-1s", "bad", "1"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv("REDIS_TIMEOUT", raw)
+			before := Config
+			err := Load()
+			if raw == "" || raw == "250ms" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := time.Second
+				if raw == "250ms" {
+					want = 250 * time.Millisecond
+				}
+				if Config.Redis.Timeout != want {
+					t.Fatalf("timeout=%v", Config.Redis.Timeout)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "REDIS_TIMEOUT") || Config != before {
+				t.Fatalf("err=%v; config should be unchanged", err)
 			}
 		})
 	}

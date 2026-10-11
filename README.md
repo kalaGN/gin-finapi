@@ -7,7 +7,7 @@
 - **Go 1.24.0 / toolchain 1.24.10**
 - **Gin v1.11.0** - Web 框架
 - **MongoDB** - 数据库（支持连接池）
-- **Redis** - 已有封装，尚未接入业务
+- **Redis** - 按 pcode 读取 `mongo_map` 产品变量映射
 - **Logrus** - 日志系统
 - **godotenv** - 环境变量管理
 
@@ -51,7 +51,7 @@ gin-finapi/
 
 ### 数据库连接池
 - ✅ **MongoDB 连接池** - 单例模式，最大 100 连接
-- ✅ **Redis 连接池** - 支持普通和限流两个实例
+- ✅ **Redis 连接池** - 复用产品映射客户端；限流仍在进程内，不使用 Redis
 - ✅ **优雅关闭** - 资源自动清理
 
 ### 配置管理
@@ -99,6 +99,7 @@ REDIS_ADDR=localhost:6379
 REDIS_PASSWORD=
 REDIS_DB=0
 REDIS_POOL_SIZE=10
+REDIS_TIMEOUT=1s
 ```
 
 ### 3. 运行项目
@@ -210,6 +211,25 @@ URL 参数和 nonce 不参与当前 JSON 验签；PHONE_AES_KEY 不再读取或�
 | `REDIS_PASSWORD` | Redis 密码 | (空) | 否 |
 | `REDIS_DB` | Redis 数据库 | `0` | 否 |
 | `REDIS_POOL_SIZE` | Redis 连接池大小 | `10` | 否 |
+| `REDIS_TIMEOUT` | 产品映射读取超时，正 Go duration | `1s` | 否 |
+
+### 产品变量映射
+
+`/loan` 每次请求按 `pcode` 执行 `HGET mongo_map <pcode>`，value 是字段名到 CSV 索引的 JSON。
+Redis 已是业务必需依赖；客户端懒连接，`/health` 不检查 Redis/Mongo。
+仅在独立测试环境人工确认后准备如下映射，应用不自动写入或覆盖配置：
+
+```text
+HSET mongo_map 10001 '{"var100001":0,"var100002":1,"var100003":2,"var100004":3,"var100005":4,"var100006":5}'
+```
+
+也可在确认目标 Redis 后执行 `go run cmd/init_redis.go` 初始化产品 10001；使用 HSETNX，
+不覆盖已有映射。指定其他产品及离线测试见 [初始化工具说明](cmd/README.md)。
+
+映射必须为非空 JSON 对象，字段名非空、索引为非负整数；重复字段、null、小数和溢出索引拒绝。
+映射缺失或无效返回 HTTP 200/status 6001/产品异常；Redis 读失败或超时返回 HTTP 503/status 9002。
+不使用硬编码回退或本地缓存。Mongo t/v、gzip/CSV 格式不变，CSV 长度仍必须等于最大映射索引加一。
+生产客户端随正常关闭释放；现有启动 goroutine Fatal 的生命周期风险仍待独立方案处理。
 
 ## 开发
 

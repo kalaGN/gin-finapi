@@ -8,13 +8,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
+	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/sirupsen/logrus"
 )
 
 type CommonRes = request.Response
-type QueryFunc func(context.Context, string) (map[string]int, error)
+type QueryFunc func(context.Context, string, int) (map[string]int, error)
 type SIDFunc func(string, int) (string, error)
 
 var errPhoneConversionUnavailable = errors.New("SHA-256 phone conversion service is not connected")
@@ -67,7 +68,7 @@ func (h *LoanHandler) Create(c *gin.Context) {
 		return
 	}
 	// 认证使用请求中的完整 phone，转换仅影响数据库查询标识。
-	result, err := h.query(c.Request.Context(), queryKey)
+	result, err := h.query(c.Request.Context(), queryKey, int(body.Pcode.Value))
 	if err != nil {
 		h.writeQueryError(c, err)
 		return
@@ -78,6 +79,10 @@ func (h *LoanHandler) Create(c *gin.Context) {
 func (h *LoanHandler) writeQueryError(c *gin.Context, err error) {
 	h.logInternalError("query loan data")
 	switch {
+	case errors.Is(err, appredis.ErrProductMapping):
+		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrProductException, Msg: rescode.GetCodeMsg(rescode.ErrProductException)})
+	case errors.Is(err, appredis.ErrMappingUnavailable):
+		c.JSON(http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 	case errors.Is(err, mongo.ErrNotFound):
 		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrDataNotFound, Msg: rescode.GetCodeMsg(rescode.ErrDataNotFound)})
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):

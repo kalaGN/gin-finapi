@@ -44,7 +44,7 @@ func main() {
 	}
 
 	// 初始化 Gin 应用
-	router, err := bootstrap.NewRouter(*config.Config, logger.Log)
+	router, closeRedis, err := bootstrap.NewRouter(*config.Config, logger.Log)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := shutdownResources(ctx, srv.Shutdown, mongo.Close); err != nil {
+	if err := shutdownResources(ctx, srv.Shutdown, mongo.Close, closeRedis); err != nil {
 		logger.Log.Errorf("Graceful shutdown completed with errors: %v", err)
 	}
 
@@ -91,6 +91,7 @@ func shutdownResources(
 	ctx context.Context,
 	shutdownHTTP func(context.Context) error,
 	closeMongo func(context.Context) error,
+	closeRedis ...func() error,
 ) error {
 	httpErr := shutdownHTTP(ctx)
 	mongoErr := closeMongo(ctx)
@@ -101,6 +102,11 @@ func shutdownResources(
 	}
 	if mongoErr != nil {
 		errs = append(errs, fmt.Errorf("close MongoDB: %w", mongoErr))
+	}
+	for _, close := range closeRedis {
+		if err := close(); err != nil {
+			errs = append(errs, fmt.Errorf("close Redis: %w", err))
+		}
 	}
 	return errors.Join(errs...)
 }

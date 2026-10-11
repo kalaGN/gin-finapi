@@ -1,4 +1,29 @@
-# MongoDB 初始化工具
+# 数据初始化工具
+
+## Redis 产品变量映射
+
+`init_redis.go` 将六变量 JSON 写入 Redis Hash `mongo_map`，field 默认为产品 `10001`。
+读取根目录 `.env` 或环境中的 `REDIS_ADDR`、`REDIS_PASSWORD`、`REDIS_DB`、
+`REDIS_POOL_SIZE`、`REDIS_TIMEOUT`，默认值与应用一致。无需配置 API Key 或 Mongo。
+配置加载复用应用入口，因此已设置的限流参数也必须合法。
+
+仅在确认目标 Redis 和 DB 后，从仓库根目录运行：
+
+```bash
+go run cmd/init_redis.go
+go run cmd/init_redis.go -pcode 10002
+```
+
+使用 `HSETNX`，已存在的产品字段不会覆盖（包括已有无效 JSON）；不删键、不清库、不操作 Mongo。
+执行失败返回非零状态，连接始终尝试关闭。不在应用启动时自动运行。
+脚本使用独立 build tag 避免同目录双 main；默认 `go test ./...` 不包含它，另执行离线测试：
+
+```bash
+go test -race cmd/init_redis.go cmd/init_redis_test.go
+go vet cmd/init_redis.go
+```
+
+## MongoDB 初始化工具
 
 ## 功能说明
 
@@ -51,7 +76,7 @@ go run cmd/init_mongo.go
 "123,456,789,234,567,890"
 ```
 
-对应的数据映射（与 `mongo.go` 中的 `varList` 对应）：
+对应的数据映射（由 Redis `mongo_map` 配置，`init_redis.go` 可初始化）：
 - var100001: 第1个值 (索引0)
 - var100002: 第2个值 (索引1)
 - var100003: 第3个值 (索引2)

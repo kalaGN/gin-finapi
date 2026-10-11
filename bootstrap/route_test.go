@@ -19,12 +19,18 @@ func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 	cfg := config.AppConfig{
 		APIKey: "test-key", SecretKey: "test-secret",
 		MongoDB:   config.MongoDBConfig{DSN: "invalid-test-dsn"},
+		Redis:     config.RedisConfig{Addr: "127.0.0.1:1", PoolSize: 1, Timeout: time.Second},
 		RateLimit: config.RateLimitConfig{Requests: 100, Window: time.Second},
 	}
-	router, err := NewRouter(cfg, nil)
+	router, closeRedis, err := NewRouter(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := closeRedis(); err != nil {
+			t.Error(err)
+		}
+	})
 	health := httptest.NewRecorder()
 	router.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if health.Code != http.StatusOK || health.Body.String() != "ok" {

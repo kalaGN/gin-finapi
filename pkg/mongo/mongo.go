@@ -16,6 +16,7 @@ type Config struct {
 	DB         string
 	Collection string // 集合名称
 	Query      string
+	Mapping    map[string]int // 已按产品校验的字段索引映射
 }
 
 // lookupFilter 固定查询字段名，保持既有 t 字符串契约。
@@ -30,6 +31,9 @@ type storedDocument struct {
 }
 
 func GetMongo(ctx context.Context, queryConfig Config) (map[string]int, error) {
+	if len(queryConfig.Mapping) == 0 {
+		return nil, fmt.Errorf("%w: mapping is required", ErrInvalidData)
+	}
 	appConfig := config.GetMongoConfig()
 	if queryConfig.DSN == "" {
 		queryConfig.DSN = appConfig.DSN
@@ -78,7 +82,7 @@ func GetMongo(ctx context.Context, queryConfig Config) (map[string]int, error) {
 		return nil, classifyMongoError("find document", err)
 	}
 
-	return decodeUserData(foundDoc.V)
+	return decodeUserData(foundDoc.V, queryConfig.Mapping)
 }
 
 // mongoTimeout 解析 MONGODB_TIMEOUT，缺失或非法时回退到 5s。

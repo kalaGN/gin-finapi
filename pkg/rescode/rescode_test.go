@@ -18,6 +18,7 @@ func TestGetCodeMsg(t *testing.T) {
 		{ErrInvalidSign, "签名验证失败"},
 		{ErrInvalidTimestamp, "时间戳无效或已过期"},
 		{ErrDataNotFound, "数据不存在"},
+		{ErrProductException, "产品异常"},
 		{ErrDatabaseQuery, "数据库查询失败"},
 		{ErrSystemError, "系统错误"},
 		{99999, "未知错误码: 99999"},

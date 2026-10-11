@@ -701,7 +701,7 @@
       ]
     },
     {
-      "name": "需要测试Mongo和Fixture",
+      "name": "需要测试Redis/Mongo和Fixture",
       "item": [
         {
           "name": "20位标识查询成功",
@@ -1078,6 +1078,193 @@
                   "const result = pm.response.json();",
                   "pm.test('业务码 9002', () => pm.expect(result.status).to.eql(9002));",
                   "pm.test('错误不返回业务数据', () => pm.expect(result.data).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "产品映射缺失",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{short_phone}}\",\n  \"pcode\": \"{{missing_pcode}}\",\n  \"apikey\": \"{{api_key}}\",\n  \"nonce\": \"3093\",\n  \"timestamp\": 0,\n  \"sign\": \"generated-by-pre-request-script\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/loan",
+            "description": "独立测试 Redis 中 mongo_map 的 missing_pcode 字段不存在；不得删除生产配置。"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "const apiKey = pm.environment.get('api_key');",
+                  "const secret = pm.environment.get('secret_key');",
+                  "if (!apiKey || !secret) throw new Error('请在测试环境配置 api_key 和 secret_key');",
+                  "const resolve = (name) => {",
+                  "  const value = pm.environment.get(name);",
+                  "  if (!value) throw new Error('缺少测试环境变量: ' + name);",
+                  "  return value;",
+                  "};",
+                  "const body = {phone: resolve('short_phone'), pcode: 10001, apikey: apiKey, nonce: '3093', timestamp: Date.now()};",
+                  "",
+                  "body.pcode = Number(resolve('missing_pcode'));",
+                  "if (!Number.isInteger(body.pcode) || body.pcode < 10001 || body.pcode > 99999) throw new Error('测试 pcode 越界');",
+                  "const params = {apikey: body.apikey, pcode: body.pcode, phone: body.phone, timestamp: body.timestamp};",
+                  "const source = Object.keys(params).sort().map(k => k + '=' + String(params[k]) + '&').join('') + 'key=' + secret;",
+                  "body.sign = CryptoJS.MD5(source).toString().toUpperCase();",
+                  "",
+                  "pm.request.body.update(JSON.stringify(body));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test('业务码 6001', () => pm.expect(result.status).to.eql(6001));",
+                  "pm.test('无结果数据', () => pm.expect(result.data).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "产品映射JSON无效",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{short_phone}}\",\n  \"pcode\": \"{{invalid_map_pcode}}\",\n  \"apikey\": \"{{api_key}}\",\n  \"nonce\": \"3093\",\n  \"timestamp\": 0,\n  \"sign\": \"generated-by-pre-request-script\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/loan",
+            "description": "独立测试 Redis 中 invalid_map_pcode 字段配置为无效 JSON；不得覆盖生产配置。"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "const apiKey = pm.environment.get('api_key');",
+                  "const secret = pm.environment.get('secret_key');",
+                  "if (!apiKey || !secret) throw new Error('请在测试环境配置 api_key 和 secret_key');",
+                  "const resolve = (name) => {",
+                  "  const value = pm.environment.get(name);",
+                  "  if (!value) throw new Error('缺少测试环境变量: ' + name);",
+                  "  return value;",
+                  "};",
+                  "const body = {phone: resolve('short_phone'), pcode: 10001, apikey: apiKey, nonce: '3093', timestamp: Date.now()};",
+                  "",
+                  "body.pcode = Number(resolve('invalid_map_pcode'));",
+                  "if (!Number.isInteger(body.pcode) || body.pcode < 10001 || body.pcode > 99999) throw new Error('测试 pcode 越界');",
+                  "const params = {apikey: body.apikey, pcode: body.pcode, phone: body.phone, timestamp: body.timestamp};",
+                  "const source = Object.keys(params).sort().map(k => k + '=' + String(params[k]) + '&').join('') + 'key=' + secret;",
+                  "body.sign = CryptoJS.MD5(source).toString().toUpperCase();",
+                  "",
+                  "pm.request.body.update(JSON.stringify(body));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test('业务码 6001', () => pm.expect(result.status).to.eql(6001));",
+                  "pm.test('无结果数据', () => pm.expect(result.data).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redis不可用",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{short_phone}}\",\n  \"pcode\": 10001,\n  \"apikey\": \"{{api_key}}\",\n  \"nonce\": \"3093\",\n  \"timestamp\": 0,\n  \"sign\": \"generated-by-pre-request-script\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/loan",
+            "description": "仅专用故障服务配置不可连接的 Redis 端口；禁止停止业务 Redis。"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "const apiKey = pm.environment.get('api_key');",
+                  "const secret = pm.environment.get('secret_key');",
+                  "if (!apiKey || !secret) throw new Error('请在测试环境配置 api_key 和 secret_key');",
+                  "const resolve = (name) => {",
+                  "  const value = pm.environment.get(name);",
+                  "  if (!value) throw new Error('缺少测试环境变量: ' + name);",
+                  "  return value;",
+                  "};",
+                  "const body = {phone: resolve('short_phone'), pcode: 10001, apikey: apiKey, nonce: '3093', timestamp: Date.now()};",
+                  "",
+                  "const params = {apikey: body.apikey, pcode: body.pcode, phone: body.phone, timestamp: body.timestamp};",
+                  "const source = Object.keys(params).sort().map(k => k + '=' + String(params[k]) + '&').join('') + 'key=' + secret;",
+                  "body.sign = CryptoJS.MD5(source).toString().toUpperCase();",
+                  "",
+                  "pm.request.body.update(JSON.stringify(body));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 503', () => pm.response.to.have.status(503));",
+                  "const result = pm.response.json();",
+                  "pm.test('业务码 9002', () => pm.expect(result.status).to.eql(9002));",
+                  "pm.test('无结果数据', () => pm.expect(result.data).to.eql(null));"
                 ]
               }
             }

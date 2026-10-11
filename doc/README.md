@@ -6,6 +6,7 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`specs/20261011-产品变量映射-设计.md`](specs/20261011-产品变量映射-设计.md) | Specs / 设计 | Redis 产品变量映射与异常分类，已实施 | 产品映射配置化 |
 | [`specs/20261011-Mongo职责整理-设计.md`](specs/20261011-Mongo职责整理-设计.md) | Specs / 设计 | Mongo 同包职责整理方案及验证，已实施 | Mongo 内部重构 |
 | [`../AGENTS.md`](../AGENTS.md) | 入口 | 项目定位、命令、红线和渐进加载入口 | 每次 AI Coding 任务 |
 | [`rules/`](rules/README.md) | Rules 索引 | 长期强制规则和 Spec 管理规范 | 所有代码和文档变更 |
@@ -24,7 +25,7 @@
 | [`knowledge/performance_test_report.md`](knowledge/performance_test_report.md) | Knowledge | 2025-11-15 本地 Apache Bench 历史结果 | 性能变更前的历史参考 |
 | [`knowledge/gin_migration_design.md`](knowledge/gin_migration_design.md) | Knowledge / 历史设计 | Iris 迁移 Gin 的历史方案 | 追溯迁移决策；不能作为当前实现说明 |
 | [`../README.md`](../README.md) | 使用说明 | 项目介绍、环境变量和启动示例 | 本地启动；内容需与代码交叉验证 |
-| [`../cmd/README.md`](../cmd/README.md) | 操作说明 | MongoDB 测试数据初始化 | 仅明确授权的数据初始化任务 |
+| [`../cmd/README.md`](../cmd/README.md) | 操作说明 | MongoDB 测试数据及 Redis 产品映射初始化 | 仅明确授权的数据初始化任务 |
 | [`../tests/bench/README.md`](../tests/bench/README.md) | 操作说明 | 历史压测脚本使用方法 | 非生产压测，需先校验请求契约 |
 
 ## 渐进加载规则

@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	appmongo "github.com/kalaGN/gin-finapi/pkg/mongo"
+	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/kalaGN/gin-finapi/routes"
@@ -36,8 +37,11 @@ func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
 				t.Fatal(err)
 			}
 			called := false
-			response := performCreate(t, string(data), func(ctx context.Context, got string) (map[string]int, error) {
+			response := performCreate(t, string(data), func(ctx context.Context, got string, pcode int) (map[string]int, error) {
 				called = true
+				if pcode != 10001 {
+					t.Fatalf("pcode = %d", pcode)
+				}
 				if got != tt.query {
 					t.Fatalf("query value = %q, want %q", got, tt.query)
 				}
@@ -57,7 +61,7 @@ func TestLoanHandler_SHA256WaitsForConversionService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := performCreate(t, string(data), func(context.Context, string) (map[string]int, error) {
+	response := performCreate(t, string(data), func(context.Context, string, int) (map[string]int, error) {
 		t.Fatal("query called before conversion service is available")
 		return nil, nil
 	}, func(string, int) (string, error) { t.Fatal("SID called before conversion"); return "", nil }, testSecret)
@@ -69,7 +73,7 @@ func TestLoanHandler_SHA256WaitsForConversionService(t *testing.T) {
 func TestCreate_RejectsNonIntegerNumbers(t *testing.T) {
 	timestamp := time.Now().UnixMilli()
 	queryCalled := false
-	query := func(context.Context, string) (map[string]int, error) {
+	query := func(context.Context, string, int) (map[string]int, error) {
 		queryCalled = true
 		return nil, nil
 	}
@@ -108,7 +112,7 @@ func TestCreate_RejectsNonIntegerNumbers(t *testing.T) {
 func TestCreate_RejectsNonStringPhoneWithFieldError(t *testing.T) {
 	timestamp := time.Now().UnixMilli()
 	body := `{"phone":13800138000,"pcode":10001,"apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`
-	query := func(context.Context, string) (map[string]int, error) {
+	query := func(context.Context, string, int) (map[string]int, error) {
 		t.Fatal("query called for invalid phone")
 		return nil, nil
 	}
@@ -130,6 +134,9 @@ func TestCreate_MapsDataErrorsWithoutLeakingDetails(t *testing.T) {
 		wantStatus int
 	}{
 		{"not found", appmongo.ErrNotFound, http.StatusOK, rescode.ErrDataNotFound},
+		{"product mapping", appredis.ErrProductMapping, http.StatusOK, rescode.ErrProductException},
+		{"Redis unavailable", appredis.ErrMappingUnavailable, http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
+		{"Redis timeout", errors.Join(appredis.ErrMappingUnavailable, context.DeadlineExceeded), http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
 		{"timeout", context.DeadlineExceeded, http.StatusGatewayTimeout, rescode.ErrTimeout},
 		{"canceled", context.Canceled, http.StatusGatewayTimeout, rescode.ErrTimeout},
 		{"unavailable", appmongo.ErrUnavailable, http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
@@ -139,7 +146,7 @@ func TestCreate_MapsDataErrorsWithoutLeakingDetails(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			query := func(context.Context, string) (map[string]int, error) {
+			query := func(context.Context, string, int) (map[string]int, error) {
 				return nil, tt.err
 			}
 			response := performCreate(t, validRequestBody(t), query, successfulSID, testSecret)
@@ -159,7 +166,7 @@ func TestCreate_MapsDataErrorsWithoutLeakingDetails(t *testing.T) {
 
 func TestCreate_ReturnsSuccess(t *testing.T) {
 	wantData := map[string]int{"var100001": 10}
-	query := func(context.Context, string) (map[string]int, error) {
+	query := func(context.Context, string, int) (map[string]int, error) {
 		return wantData, nil
 	}
 
@@ -175,7 +182,7 @@ func TestCreate_ReturnsSuccess(t *testing.T) {
 
 func TestCreate_HandlesSIDGenerationFailure(t *testing.T) {
 	queryCalled := false
-	query := func(context.Context, string) (map[string]int, error) {
+	query := func(context.Context, string, int) (map[string]int, error) {
 		queryCalled = true
 		return nil, nil
 	}
@@ -255,7 +262,7 @@ func jsonNumber(value int64) string {
 func TestLoanHandler_UsesOriginalPhoneAndRequestContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	called := false
-	handler, err := NewLoanHandler(func(ctx context.Context, phone string) (map[string]int, error) {
+	handler, err := NewLoanHandler(func(ctx context.Context, phone string, pcode int) (map[string]int, error) {
 		called = true
 		if phone != "phone" || !errors.Is(ctx.Err(), context.Canceled) {
 			t.Fatal("query did not receive original phone and canceled context")
@@ -284,7 +291,7 @@ func TestLoanHandler_UsesOriginalPhoneAndRequestContext(t *testing.T) {
 }
 
 func TestLoanHandler_FailsClosedWithoutMiddleware(t *testing.T) {
-	handler, err := NewLoanHandler(func(context.Context, string) (map[string]int, error) { t.Fatal("query called"); return nil, nil }, successfulSID, nil)
+	handler, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) { t.Fatal("query called"); return nil, nil }, successfulSID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

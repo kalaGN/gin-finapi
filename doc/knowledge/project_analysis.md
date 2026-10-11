@@ -2,7 +2,7 @@
 
 > 初次分析：2026-08-03；本轮认证/加密/Handler 复核：2026-10-11
 > 分析分支：`main`
-> 当前基线：`85e21d3`，另含待人工审查的请求加密鉴权变更。本文其他历史审计未全量复核。
+> 历史审计基线：`85e21d3`。2026-10-11 已复核 phone 原值查询、Mongo 同包拆分及 Redis 产品映射；其他历史审计未全量复核。
 
 ## 1. 分析结论
 
@@ -19,12 +19,12 @@ Gin FinAPI 当前是一个体量较小、调用链直接的 Go/Gin API 查询服
 | 开发语言 | Go 1.24 |
 | HTTP 框架 | Gin 1.11.0 |
 | 数据库 | MongoDB Driver 1.17.2 |
-| 缓存 | go-redis 9.7.0，目前未接入核心业务 |
+| Redis | go-redis 9.7.0，按 pcode 从 Hash mongo_map 读取变量映射 |
 | 日志 | Logrus 1.8.1 |
 | 配置 | godotenv + 环境变量 |
 | RPC | gRPC/Protobuf，目前只有 HelloWorld 示例 |
 
-`README.md` 中的“Go 1.18+”与 `go.mod` 实际声明的 Go 1.24、toolchain 1.24.10 不一致，应以 `go.mod` 为准。
+Go 版本以 `go.mod` 的 1.24.0、toolchain 1.24.10 为准；旧 README 的“Go 1.18+”已修正。
 
 ### 2.2 项目规模
 
@@ -40,11 +40,12 @@ Gin FinAPI 当前是一个体量较小、调用链直接的 Go/Gin API 查询服
 POST /loan
   → Gin 全局中间件
   → LoanAuth：单次 JSON/类型/配置 API Key/时间戳/原值签名校验
-  → 注入式 LoanHandler：phone 原值查询
+  → 注入式 LoanHandler：MD5 截前 20 位，旧查询标识兼容
+  → Redis HGET mongo_map pcode：加载 JSON 变量映射
   → MongoDB 按 phone 查询字段 t
   → gzip 解压字段 v
   → 解析逗号分隔数据
-  → 映射为 var100001～var100006
+  → 按产品映射生成变量结果（无硬编码回退）
   → 返回 JSON 响应
 ```
 
@@ -55,14 +56,14 @@ POST /loan
 | `main.go` | 配置加载、Gin 初始化、HTTP Server 和优雅关闭 | 已接入 |
 | `bootstrap/` | 注册全局中间件及路由 | 已接入 |
 | `routes/` | 健康检查和贷款路由 | 已接入 |
-| `app/Http/controllers/loan/` | 解密、SID、注入查询和 HTTP 响应映射 | 已注入查询、解密、SID 和 Logger |
+| `app/Http/controllers/loan/` | phone 归一化、SID、注入查询和 HTTP 响应映射 | SHA-256 转换为 TODO，返回 503/9002 |
 | `app/middleware/` | CORS、日志、限流和认证 | 部分为占位实现 |
 | `app/models/` | 贷款模型及通用响应 | 未进入核心调用链 |
 | `app/repositories/` | Repository 接口 | 无实现、未使用 |
 | `pkg/config/` | 应用配置 | 已接入；主程序执行必填校验，但配置入口仍重复 |
 | `pkg/env/` | 遗留的 MongoDB 环境变量工具 | 未进入当前主调用链，和 config 职责重复 |
 | `pkg/mongo/` | Mongo 连接池、查询、解压和结果映射 | 已接入 |
-| `pkg/redis/` | Redis 客户端封装 | 未接入业务 |
+| `pkg/redis/` | 产品变量映射读取器及遗留客户端封装 | product_map.go 已接入；旧 redis.go 未接入主链路 |
 | `pkg/rescode/` | 业务错误码 | 已接入 |
 | `pkg/utils/` | SID、时间戳和签名工具 | 已接入 |
 | `app/protos/helloworld/` | gRPC 示例 | 未接入实际服务 |
@@ -93,7 +94,7 @@ go vet ./...
 以下关键模块目前仍没有测试：
 
 - 真实 MongoDB 的查询、连接超时、运行期断线和恢复集成行为；
-- Redis；
+- 真实 Redis 连接、认证、断线恢复集成行为（读取器、JSON 校验与离线 HTTP 链路已有测试）；
 - 完整部署环境中的日志采集和敏感信息保护；Logger 元数据及 Handler/认证组件已有自动化测试；
 - 隔离环境中的端到端请求。
 
@@ -155,9 +156,15 @@ Mongo 客户端改为互斥保护的生命周期管理器，只有 Connect + Pin
 剩余边界：尚未增加启动期 Mongo readiness 和真实断线恢复集成测试。
 
 2026-10-11 已按同包职责拆分：mongo.go 保留查询和配置补全，client.go 管理连接，
-codec.go 解压 gzip、校验 CSV 并映射六变量，errors.go 定义和分类错误。
+codec.go 解压 gzip、校验 CSV 并映射变量，errors.go 定义和分类错误。
 BSON t/v、gzip/CSV、导出入口、错误、超时和连接行为不变；旧 connectToMongoDB 仍保留，未接入主链路。
 新增离线特征测试覆盖实际 BSON 查询和文档类型、完整六变量映射及异常数据；不代表真实 Mongo 集成验证。
+
+2026-10-11 产品映射已改为 Redis Hash `mongo_map`：field 为十进制 pcode，value 为非空 JSON 对象，
+变量名对应非负整数 CSV 下标。每次请求读取，不缓存、不回写、不回退；配置 `REDIS_TIMEOUT` 默认 1s。
+缺失、重复键、空对象或无效 JSON 返回 HTTP 200/6001；Redis 故障或读取超时返回 HTTP 503/9002，
+这些分支不访问 Mongo。CSV 长度仍须等于最大下标加一，BSON t/v 和 gzip 格式不变。
+正常关闭在 HTTP/Mongo 之后释放 Redis；启动 goroutine 的 Fatal 错误通道仍待独立 Spec 确认。
 启动、错误通道与关闭策略仍待另一份 Spec 确认，本次未实施。
 
 ### 5.6 已整改：核心 Mongo 错误分类及对外泄露
@@ -220,12 +227,12 @@ MongoDB 配置同时存在于：
 
 ### 5.10 P2：未使用或半成品模块较多
 
-- Redis 已封装并配置，但没有进入业务链路；
+- 旧 Redis 通用封装未接入；新的产品映射读取器已进入业务链路；
 - `LoanRepository` 只有接口，没有实现；
 - `LoanRequest` 模型未使用；
 - gRPC 只有 HelloWorld 示例；
 - `connectToMongoDB` 是未使用的旧连接实现；
-- 认证中间件只有占位逻辑。
+- 遗留认证中间件有占位逻辑，当前 LoanAuth 已提供配置账号鉴权。
 
 这些代码会增加理解成本并制造“功能已经具备”的错觉。应明确近期用途，否则删除或移入示例目录。
 
@@ -244,11 +251,11 @@ MongoDB 配置同时存在于：
 
 ## 7. 文档与仓库一致性
 
-目前存在以下不一致：
+以下是历史不一致清单，未全量复核；Go 版本、当前鉴权和 Redis 映射描述已同步 README：
 
 - README 写 Go 1.18+，实际要求 Go 1.24；
 - README 包含 Docker 构建和运行说明，仓库没有 Dockerfile；
-- README 宣称 Redis 连接池属于功能特性，但当前核心流程没有初始化或使用 Redis；
+- 历史 README 宣称 Redis 能力而未启用；当前已实际用于产品映射，连接池和读超时均配置化；
 - README 中的认证示例没有反映 `/loan` 当前真实注册方式；
 - 项目根目录已有 `AGENTS.md`，并以 `doc/README.md` 作为规则、Spec 和 Knowledge 索引；
 - 仓库跟踪了约 27 MB 的 macOS arm64 编译产物 `main`，增加仓库体积且不具备跨平台复用价值；约 2.7 MB 的 `access.log` 已被忽略但会污染本地工作区。
@@ -273,11 +280,11 @@ MongoDB 配置同时存在于：
 | 已整改 | SID 改用 `crypto/rand`，并有随机失败、并发和 race 测试 | 原共享随机源竞态已消除 | 保持测试；不得降级为可预测随机源 |
 | 已整改 | Mongo 初始化仅发布成功客户端，失败可重试、关闭可重建 | 原首次失败固化风险已消除 | 后续补真实故障集成测试和 readiness |
 | 已整改 | Loan 区分未查得、超时、不可用和数据损坏，响应不含原始错误 | 客户端和监控可按稳定契约分类 | 保持契约测试，变更前先建 Spec |
-| 部分整改 | Controller、路由、中间件、Mongo、配置和主程序已有直接测试；Redis、真实 Mongo 集成仍缺失 | 核心纯逻辑与 HTTP 映射可回归，外部集成仍有盲区 | 在隔离环境补 Mongo 集成和完整中间件链测试 |
+| 部分整改 | Controller、路由、中间件、Mongo、Redis 映射、配置和主程序已有直接测试；真实 Redis/Mongo 集成仍缺失 | 核心纯逻辑与离线 HTTP 链路可回归，外部集成仍有盲区 | 在隔离环境补依赖故障和真实集成测试 |
 | 已整改 | `pcode`、`timestamp` 使用严格 JSON 整数解析 | 小数、字符串、指数和溢出不再被静默接受 | 保持边界测试 |
 | P1 | `cmd/init_mongo.go` 对 16 个同名集合执行 `Drop` | 误用会造成数据丢失 | 仅授权测试环境运行，增加目标确认与回滚方案 |
 | 部分整改 | 主调用链统一到 `pkg/config`，但 `pkg/env` 遗留工具仍重复 | 能力误判和维护成本仍存在 | 确认无外部使用后，在独立清理任务中移除 |
-| P2 | Redis、Repository/Model、gRPC 示例和旧 Mongo 连接函数未进入主链路 | 增加维护成本并造成能力误判 | 由负责人确认规划后再保留、隔离或删除 |
+| P2 | 旧 Redis 封装、Repository/Model、gRPC 示例和旧 Mongo 连接函数未进入主链路 | 增加维护成本并造成能力误判；不包含已启用的产品映射 | 由负责人确认规划后再保留、隔离或删除 |
 | P2 | `README.md` 的 Go 1.18+、JWT/API Key、Redis、Docker 和限流描述与代码不一致 | 新成员和 AI 使用错误事实 | 单独审查 README；本次只记录，不擅自改产品说明 |
 | 部分整改 | 已引入最小 CI（`.github/workflows/ci.yml`：gofmt、vet、`test -race`、build），仍无项目级 Lint、漏洞扫描、覆盖率门槛或部署清单 | 格式、编译、竞态与构建回归可自动拦截；更细的质量门禁依赖人工 | 按需通过 Spec 补 golangci-lint、覆盖率门槛与漏洞扫描 |
 | 部分整改 | 约 27 MB 的本机 Mach-O `main` 已移出 Git 跟踪，`.gitignore` 增加 `/main` | 新提交不再累积该二进制；历史中的 blob 仍占据仓库体积 | 如需缩减历史体积，另行评估 history filter 与强推影响 |
@@ -308,7 +315,7 @@ MongoDB 配置同时存在于：
 2. 已完成 LoanAuth 与注入式 LoanHandler；出现实际多步骤业务编排时再评估 Service。
 3. 现有 QueryFunc 已隔离 Mongo 访问；Repository CRUD 接口仍未使用，不为填充分层接入。
 4. 主调用链已统一使用 `pkg/config`；遗留 `pkg/env` 的清理待确认。
-5. 清理或明确 Redis、gRPC、旧 Mongo 连接代码和占位认证模块。
+5. 清理或明确旧 Redis 封装、gRPC、旧 Mongo 连接代码和占位认证模块，保留已启用的产品映射。
 
 ### 阶段四：测试与交付
 
