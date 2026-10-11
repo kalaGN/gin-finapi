@@ -28,6 +28,8 @@
 
 ## 渐进加载规则
 
+接口回归资产：[Apifox 导入与执行说明](../tests/APIFOX.md)，包含 Postman v2.1 用例及无密钥环境模板。
+
 1. 先读 `AGENTS.md` 和本索引。
 2. 所有变更加载 `rules/project_rules.md` 中与任务有关的章节，不必一次加载全文。
 3. 复杂任务再加载 `specs/` 中的对应 Spec；不存在 Spec 且满足创建条件时，先按
