@@ -13,16 +13,15 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	loanc "github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
 )
 
 // RegisterAPIRoutes 注册网页相关路由
-func RegisterAPIRoutes(router *gin.Engine) {
+func RegisterAPIRoutes(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc) {
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
 
 	// Loan 路由
-	router.POST("/loan", loanc.Create)
+	router.POST("/loan", loanAuth, loanHandler)
 }

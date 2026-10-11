@@ -77,15 +77,16 @@ main.go
   → Recovery → CORS → Logger → 进程内 IP 限流
   → GET /health
   → POST /loan
-      → JSON/字段/时间戳/签名校验
+      → LoanAuth 单次 JSON/字段/API Key/时间戳/原值签名校验
+      → LoanHandler 原样查询 phone
       → mongo.GetMongo
       → Mongo FindOne(t=phone)
       → gzip 解压 v → CSV 整数映射
       → CommonRes JSON
 ```
 
-这是当前实现描述，不代表目标分层设计。Controller 直接依赖 `pkg/config`、`pkg/mongo`、
-`pkg/rescode` 和 `pkg/utils`；Repository 接口尚未使用。
+LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；main 装配 Mongo 查询闭包。
+共享 DTO 放在 pkg/loanrequest。Handler 目前仍引用 Mongo 错误分类；Repository 接口尚未使用。
 
 ### 职责与依赖
 
@@ -99,7 +100,7 @@ main.go
 ### 未建立的边界
 
 - 当前没有应用级事务、异步消息、后台任务或分布式一致性边界。
-- 当前没有依赖注入容器；全局 Mongo 客户端和配置是现状，不得假装已实现可替换依赖。
+- 当前没有依赖注入容器；Mongo 客户端和配置仍为全局；LoanHandler 已通过函数注入可替换查询和 SID 依赖。
 - 新事务、异步处理或外部服务调用必须先通过 Spec 明确一致性、超时、重试和回滚。
 - 现有结构不一致应记录风险，不借局部需求擅自进行全仓重构。
 
@@ -122,7 +123,11 @@ main.go
 
 - `/loan` 的 `pcode` 只接受 JSON 整数且范围为 10001–99999；`timestamp` 只接受 JSON 整数，
   使用毫秒并限制为过去 5 分钟内。字符串、小数、指数形式和整数溢出值均拒绝。
-- 签名当前把 `phone`、`pcode`、`apikey`、`timestamp` 按 key 排序拼接，加 `SECRET_KEY` 后计算
+- phone 是非空字符串，签名使用原始完整值；32 位十六进制 MD5 截前 20 位查 t，保留大小写。
+  SHA-256（64 位十六进制）需后续服务映射为原手机号 MD5，目前 TODO，返回 503/9002，不直接查询。
+  既有 20 位及其他历史非空标识保持原值兼容，不解密或对摘要重新哈希。
+- /loan 认证中间件要求 JSON apikey 精确匹配 API_KEY，Body 上限 64 KiB，只解析一次。
+- 签名当前把原始 `phone`、`pcode`、`apikey`、`timestamp` 按 key 排序拼接，加 `SECRET_KEY` 后计算
   大写 MD5。该算法存在安全/演进风险，但在确认客户端兼容前不得擅自替换。
 - 成功数据字段当前为 `var100001` 至 `var100006`。字段名、类型、缺省行为都是契约候选，变更需 Spec。
 - 当前没有分页、版本前缀、废弃策略或幂等键约定；标记“待确认”，不能自行创建。
@@ -218,16 +223,16 @@ go build ./...
 ### 已确认机制
 
 - `.env` 和 `*.ini` 被 `.gitignore` 忽略；`.env.example` 只包含占位值。
-- 启动时校验 `SECRET_KEY`、Mongo DSN 和数据库名非空。
-- `/loan` 校验五分钟时间戳和基于共享密钥的 MD5 签名。
+- 启动时校验 SECRET_KEY、API_KEY、Mongo DSN 和数据库名非空，不再依赖 PHONE_AES_KEY。
+- `/loan` 校验五分钟时间戳、配置 API Key、原值 phone 的 MD5 签名，认证通过后原样查询。
 
 ### 已确认缺口
 
-- `apikey` 只检查非空，没有真实性、状态、主体或权限校验；认证中间件未挂载且仅为占位。
-- 日志完整记录请求/响应，可能泄露 phone、apikey、sign 和结果数据。
+- LoanAuth 校验单个配置 API Key；没有多账号、状态、主体或细粒度权限系统，历史多级缓存方案仍为草案。
+- 请求日志只记录安全元数据，不读取或缓存 Body；传输仍需 HTTPS。
 - 签名仍使用 MD5，但比较已使用常量时间实现；五分钟内仍没有 nonce/幂等防重放机制。
 - CORS 为 `*`；允许来源、凭据需求和反向代理信任边界待确认。
-- 日志中间件仍记录完整请求/响应；Loan Controller 已停止向客户端返回 Mongo/解压原始错误，
+- LoanHandler 不记录 Mongo/解压原始错误，客户端只返回稳定错误码和文案；
   其他边界是否泄露内部信息仍需逐项审计。
 
 ### 强制规则
@@ -249,7 +254,8 @@ go build ./...
 - HTTP Server 配置 10 秒 Read/Write Timeout、1 MiB Header；关闭超时 5 秒。
 - `GET /health` 只证明 HTTP 进程可响应，不检查 Mongo readiness，也没有独立 liveness/readiness。
 - Mongo 客户端只在 Connect + Ping 成功后发布；初始化失败可重试，关闭后可重新初始化。
-- 限流是单进程、按 IP 的内存计数器，每秒 5000；多实例不共享状态。
+- 限流是单进程、按 IP 的内存计数器；RATE_LIMIT_REQUESTS 默认 5000，RATE_LIMIT_WINDOW 默认 1s。
+  次数和窗口必须为正，非法配置拒绝启动，变更后重启；多实例不共享状态。
 - 使用 Logrus；生产 JSON、非生产文本。没有确认 Metrics、Tracing、告警或稳定 Request ID。
 
 ### 规则

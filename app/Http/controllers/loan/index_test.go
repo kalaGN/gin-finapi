@@ -12,17 +12,64 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kalaGN/gin-finapi/app/middleware"
 	appmongo "github.com/kalaGN/gin-finapi/pkg/mongo"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
+	"github.com/kalaGN/gin-finapi/routes"
 )
 
 const testSecret = "test-secret"
 
+func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
+	for _, tt := range []struct{ phone, query string }{
+		{"r707qyr0k2xmucjp7lz0", "r707qyr0k2xmucjp7lz0"},
+		{"0123456789abcdef0123456789abcdef", "0123456789abcdef0123"},
+		{"0123456789ABCDEF0123456789ABCDEF", "0123456789ABCDEF0123"},
+	} {
+		phone := tt.phone
+		t.Run(phone, func(t *testing.T) {
+			body := map[string]interface{}{"phone": phone, "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+			body["sign"] = utils.GenerateSign(body, testSecret)
+			data, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			called := false
+			response := performCreate(t, string(data), func(ctx context.Context, got string) (map[string]int, error) {
+				called = true
+				if got != tt.query {
+					t.Fatalf("query value = %q, want %q", got, tt.query)
+				}
+				return map[string]int{"var100001": 10}, nil
+			}, successfulSID, testSecret)
+			if !called || response.Code != http.StatusOK || decodeResponse(t, response).Status != rescode.SuccessCode {
+				t.Fatalf("called=%v, HTTP=%d, response=%s", called, response.Code, response.Body)
+			}
+		})
+	}
+}
+
+func TestLoanHandler_SHA256WaitsForConversionService(t *testing.T) {
+	body := map[string]interface{}{"phone": strings.Repeat("b", 64), "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+	body["sign"] = utils.GenerateSign(body, testSecret)
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := performCreate(t, string(data), func(context.Context, string) (map[string]int, error) {
+		t.Fatal("query called before conversion service is available")
+		return nil, nil
+	}, func(string, int) (string, error) { t.Fatal("SID called before conversion"); return "", nil }, testSecret)
+	if response.Code != http.StatusServiceUnavailable || decodeResponse(t, response).Status != rescode.ErrServiceUnavailable {
+		t.Fatalf("HTTP=%d, response=%s", response.Code, response.Body)
+	}
+}
+
 func TestCreate_RejectsNonIntegerNumbers(t *testing.T) {
 	timestamp := time.Now().UnixMilli()
 	queryCalled := false
-	query := func(context.Context, appmongo.Config) (map[string]int, error) {
+	query := func(context.Context, string) (map[string]int, error) {
 		queryCalled = true
 		return nil, nil
 	}
@@ -61,7 +108,7 @@ func TestCreate_RejectsNonIntegerNumbers(t *testing.T) {
 func TestCreate_RejectsNonStringPhoneWithFieldError(t *testing.T) {
 	timestamp := time.Now().UnixMilli()
 	body := `{"phone":13800138000,"pcode":10001,"apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`
-	query := func(context.Context, appmongo.Config) (map[string]int, error) {
+	query := func(context.Context, string) (map[string]int, error) {
 		t.Fatal("query called for invalid phone")
 		return nil, nil
 	}
@@ -92,7 +139,7 @@ func TestCreate_MapsDataErrorsWithoutLeakingDetails(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			query := func(context.Context, appmongo.Config) (map[string]int, error) {
+			query := func(context.Context, string) (map[string]int, error) {
 				return nil, tt.err
 			}
 			response := performCreate(t, validRequestBody(t), query, successfulSID, testSecret)
@@ -112,7 +159,7 @@ func TestCreate_MapsDataErrorsWithoutLeakingDetails(t *testing.T) {
 
 func TestCreate_ReturnsSuccess(t *testing.T) {
 	wantData := map[string]int{"var100001": 10}
-	query := func(context.Context, appmongo.Config) (map[string]int, error) {
+	query := func(context.Context, string) (map[string]int, error) {
 		return wantData, nil
 	}
 
@@ -128,7 +175,7 @@ func TestCreate_ReturnsSuccess(t *testing.T) {
 
 func TestCreate_HandlesSIDGenerationFailure(t *testing.T) {
 	queryCalled := false
-	query := func(context.Context, appmongo.Config) (map[string]int, error) {
+	query := func(context.Context, string) (map[string]int, error) {
 		queryCalled = true
 		return nil, nil
 	}
@@ -149,15 +196,19 @@ func TestCreate_HandlesSIDGenerationFailure(t *testing.T) {
 	}
 }
 
-func performCreate(t *testing.T, body string, query queryFunc, sid sidFunc, secret string) *httptest.ResponseRecorder {
+func performCreate(t *testing.T, body string, query QueryFunc, sid SIDFunc, secret string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	request := httptest.NewRequest(http.MethodPost, "/loan", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(response)
-	ctx.Request = request
-	create(ctx, query, sid, secret)
+	handler, err := NewLoanHandler(query, sid, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuth("key", secret))
+	router.ServeHTTP(response, request)
 	return response
 }
 
@@ -199,4 +250,52 @@ func decodeResponse(t *testing.T, response *httptest.ResponseRecorder) CommonRes
 
 func jsonNumber(value int64) string {
 	return strconv.FormatInt(value, 10)
+}
+
+func TestLoanHandler_UsesOriginalPhoneAndRequestContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	called := false
+	handler, err := NewLoanHandler(func(ctx context.Context, phone string) (map[string]int, error) {
+		called = true
+		if phone != "phone" || !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatal("query did not receive original phone and canceled context")
+		}
+		return nil, ctx.Err()
+	}, successfulSID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuth("key", testSecret))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest("POST", "/loan", strings.NewReader(validRequestBody(t))).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if !called || w.Code != 504 {
+		t.Fatalf("called=%v, HTTP=%d", called, w.Code)
+	}
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/health", nil))
+	if w.Code != 200 || w.Body.String() != "ok" {
+		t.Fatal("health should not require authentication")
+	}
+}
+
+func TestLoanHandler_FailsClosedWithoutMiddleware(t *testing.T) {
+	handler, err := NewLoanHandler(func(context.Context, string) (map[string]int, error) { t.Fatal("query called"); return nil, nil }, successfulSID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := gin.New()
+	r.POST("/loan", handler.Create)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/loan", strings.NewReader(validRequestBody(t))))
+	if w.Code != 401 {
+		t.Fatalf("HTTP = %d", w.Code)
+	}
+	if _, err := NewLoanHandler(nil, successfulSID, nil); err == nil {
+		t.Fatal("missing dependency accepted")
+	}
 }

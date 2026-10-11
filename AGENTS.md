@@ -10,7 +10,10 @@ Gin FinAPI 是一个单仓库、单 Go module 的 Gin HTTP 查询服务。当前
 
 - Go `1.24.0`，toolchain `go1.24.10`；Gin `1.11.0`。
 - 应用入口：`main.go`；路由：`routes/api.go`；中间件：`app/middleware/`。
-- 核心处理：`app/Http/controllers/loan/index.go`、`pkg/mongo/mongo.go`。
+- 核心处理：`app/Http/controllers/loan/index.go`（注入式 LoanHandler）、`pkg/mongo/mongo.go`。
+- `/loan` 认证：`app/middleware/loan_auth.go`；MD5 phone 截前 20 位查 t，旧标识兼容。
+- SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
+- 必填认证配置：`API_KEY`、`SECRET_KEY`。
 - 测试数据 CLI：`cmd/init_mongo.go`。它会删除并重建 16 个集合，未经明确授权不得运行。
 - 依赖锁定：`go.mod`、`go.sum`。CI 为最小 GitHub Actions 门禁
   （`.github/workflows/ci.yml`：`gofmt`、`go vet`、`go test -race`、`go build`）；

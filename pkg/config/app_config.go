@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // AppConfig 应用配置结构
@@ -12,6 +13,24 @@ type AppConfig struct {
 	MongoDB   MongoDBConfig
 	Redis     RedisConfig
 	SecretKey string
+	APIKey    string
+	RateLimit RateLimitConfig
+}
+
+// RateLimitConfig configures the existing per-process, per-IP limiter.
+type RateLimitConfig struct {
+	Requests int
+	Window   time.Duration
+}
+
+func (c RateLimitConfig) Validate() error {
+	if c.Requests <= 0 {
+		return fmt.Errorf("RATE_LIMIT_REQUESTS must be a positive integer")
+	}
+	if c.Window <= 0 {
+		return fmt.Errorf("RATE_LIMIT_WINDOW must be a positive duration")
+	}
+	return nil
 }
 
 // ServerConfig 服务器配置
@@ -42,6 +61,18 @@ var Config *AppConfig
 
 // Load 从环境变量加载配置
 func Load() error {
+	requests, err := strconv.Atoi(getEnvWithDefault("RATE_LIMIT_REQUESTS", "5000"))
+	if err != nil {
+		return fmt.Errorf("RATE_LIMIT_REQUESTS must be a positive integer")
+	}
+	window, err := time.ParseDuration(getEnvWithDefault("RATE_LIMIT_WINDOW", "1s"))
+	if err != nil {
+		return fmt.Errorf("RATE_LIMIT_WINDOW must be a positive duration")
+	}
+	rateLimit := RateLimitConfig{Requests: requests, Window: window}
+	if err := rateLimit.Validate(); err != nil {
+		return err
+	}
 	Config = &AppConfig{
 		Server: ServerConfig{
 			Port: getEnvWithDefault("SERVER_PORT", "8082"),
@@ -62,6 +93,8 @@ func Load() error {
 			PoolSize: getEnvIntWithDefault("REDIS_POOL_SIZE", 10),
 		},
 		SecretKey: os.Getenv("SECRET_KEY"),
+		APIKey:    os.Getenv("API_KEY"),
+		RateLimit: rateLimit,
 	}
 
 	return nil
@@ -140,6 +173,12 @@ func (c *AppConfig) Validate() error {
 	}
 	if c.SecretKey == "" {
 		return fmt.Errorf("secret key is required")
+	}
+	if c.APIKey == "" {
+		return fmt.Errorf("API key is required")
+	}
+	if err := c.RateLimit.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

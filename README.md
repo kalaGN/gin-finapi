@@ -4,10 +4,10 @@
 
 ## 技术栈
 
-- **Go 1.18+**
+- **Go 1.24.0 / toolchain 1.24.10**
 - **Gin v1.11.0** - Web 框架
 - **MongoDB** - 数据库（支持连接池）
-- **Redis** - 缓存
+- **Redis** - 已有封装，尚未接入业务
 - **Logrus** - 日志系统
 - **godotenv** - 环境变量管理
 
@@ -19,7 +19,7 @@ gin-finapi/
 │   ├── Http/controllers/    # 控制器层
 │   │   └── loan/            # 贷款业务
 │   ├── middleware/          # 中间件
-│   │   ├── auth.go          # 认证鉴权
+│   │   ├── loan_auth.go     # JSON API Key + 签名鉴权
 │   │   ├── cors.go          # CORS
 │   │   ├── logger.go        # 日志
 │   │   ├── ratelimit.go     # 限流
@@ -43,11 +43,11 @@ gin-finapi/
 ## 功能特性
 
 ### 中间件系统
-- ✅ **日志中间件** - 结构化日志记录请求/响应
+- ✅ **日志中间件** - 结构化日志记录方法、路由、状态码与耗时，不记录 Body
 - ✅ **异常恢复** - 使用 Gin 内置 Recovery
 - ✅ **CORS 支持** - 跨域请求处理
-- ✅ **限流保护** - 防止接口滥用（100 req/min）
-- ✅ **认证鉴权** - JWT/API Key 支持
+- ✅ **限流保护** - 单进程按 IP 限流（5000 req/s）
+- ✅ **认证鉴权** - 配置 API Key + timestamp/sign；phone 原值查询
 
 ### 数据库连接池
 - ✅ **MongoDB 连接池** - 单例模式，最大 100 连接
@@ -56,7 +56,7 @@ gin-finapi/
 
 ### 配置管理
 - ✅ **环境变量驱动** - 符合 12-Factor App 原则
-- ✅ **默认值支持** - 无配置也能运行
+- ✅ **默认值支持** - 启动校验 Mongo、签名密钥、API Key
 - ✅ **多环境支持** - 开发/测试/生产环境隔离
 
 ## 快速开始
@@ -82,6 +82,9 @@ cp .env.example .env
 SERVER_PORT=8082
 ENV=development
 SECRET_KEY=replace_with_a_strong_random_secret
+API_KEY=replace_with_client_api_key
+RATE_LIMIT_REQUESTS=5000
+RATE_LIMIT_WINDOW=1s
 
 # MongoDB 配置
 MONGODB_DSN=mongodb://localhost:27017
@@ -125,7 +128,7 @@ curl http://localhost:8082/health
 # 数据接口
 curl -X POST http://localhost:8082/loan \
   -H "Content-Type: application/json" \
-  -d '{"phone":"test123","pcode":10001,"apikey":"your_api_key","timestamp":1730000000000,"sign":"UPPERCASE_MD5_32_CHARS"}'
+  -d '{"phone":"r707qyr0k2xmucjp7lz0","pcode":10001,"apikey":"your_api_key","timestamp":1730000000000,"sign":"UPPERCASE_MD5_32_CHARS"}'
 ```
 
 ## API 接口
@@ -149,13 +152,25 @@ Content-Type: application/json
 
 ```json
 {
-  "phone": "string",
+  "phone": "r707qyr0k2xmucjp7lz0",
   "pcode": 10001,
   "apikey": "your_api_key",
   "timestamp": 1730000000000,
   "sign": "UPPERCASE_MD5_32_CHARS"
 }
 ```
+
+phone 是非空字符串：完整 32 位十六进制 MD5 截前 20 位查 Mongo t，保留大小写；
+既有 20 位查询标识继续原样查询。64 位十六进制 SHA-256 的转换服务尚未接入（TODO），
+当前返回 HTTP 503 + 9002，不直接查库或对摘要再哈希。其他历史非空值沿用原值兼容。
+签名按原规则对 phone、pcode、apikey、timestamp 排序拼接，加 SECRET_KEY 后做大写 MD5。
+请求 apikey 必须精确等于 API_KEY；timestamp 为过去五分钟内的 Unix 毫秒。
+上面的 timestamp 和 sign 只是结构示意，联调时需要实时生成。
+[设计与请求示例](doc/specs/20261011-请求加密鉴权-设计.md)。
+
+请求必须使用 application/json，Body 最大 64 KiB。无效 API Key 返回 400/2001；
+phone 类型错误返回 400/1002、缺失或空字符串返回 400/1001。其他错误映射保持原约定。
+URL 参数和 nonce 不参与当前 JSON 验签；PHONE_AES_KEY 不再读取或必填。
 
 **响应：**
 
@@ -182,10 +197,13 @@ Content-Type: application/json
 | `SERVER_PORT` | 服务端口 | `8082` | 否 |
 | `ENV` | 运行环境 | `production` | 否 |
 | `SECRET_KEY` | 请求签名密钥 | - | 是 |
+| `API_KEY` | 单个合法客户端 API Key | - | 是 |
+| `RATE_LIMIT_REQUESTS` | 每个 IP 在窗口内允许的次数，正整数 | `5000` | 否 |
+| `RATE_LIMIT_WINDOW` | 限流窗口，正 Go duration，例如 `1s`、`500ms` | `1s` | 否 |
 | `MONGODB_DSN` | MongoDB 连接字符串 | - | 是 |
 | `MONGODB_DATABASE` | 数据库名称 | - | 是 |
 | `MONGODB_COLLECTION` | 集合名称 | `data_20251101_0` | 否 |
-| `MONGODB_TIMEOUT` | 连接超时 | `5s` | 否 |
+| `MONGODB_TIMEOUT` | 查询超时 | `5s` | 否 |
 | `MONGODB_MAX_POOL` | 最大连接数 | `100` | 否 |
 | `MONGODB_MIN_POOL` | 最小连接数 | `10` | 否 |
 | `REDIS_ADDR` | Redis 地址 | `localhost:6379` | 否 |
@@ -195,11 +213,14 @@ Content-Type: application/json
 
 ## 开发
 
+限流配置放在 `.env` 或环境变量中，修改后重启生效。非法次数或窗口会拒绝启动。
+限流仍为单进程、按 IP，作用于所有路由；多实例间不共享计数。
+
 ### 添加新接口
 
 1. 在 `app/Http/controllers/` 创建控制器
-2. 在 `routes/api.go` 注册路由
-3. 可选：添加认证中间件
+2. 在 main 装配依赖并向 `routes/api.go` 注入 Handler
+3. 在业务路由注册认证中间件；`/loan` 必须挂载 LoanAuth
 
 ### 添加中间件
 
@@ -212,11 +233,16 @@ router.Use(middleware.YourMiddleware())
 或在特定路由组使用：
 
 ```go
-api := app.Party("/api")
-api.Use(middleware.AuthRequired())
+api := router.Group("/api")
+api.Use(middleware.LoanAuth(config.Config.APIKey, config.Config.SecretKey))
 ```
 
+LoanAuth 专用于本项目 Loan JSON 契约；旧 AuthRequired/APIKeyAuth 仍是未启用占位实现。
+
 ## Docker 部署
+
+仓库目前没有 Dockerfile，以下为历史部署示意，不能直接作为可执行部署流程。
+上线必须安全注入 SECRET_KEY、API_KEY，不把密钥写入镜像或命令历史。
 
 ```bash
 # 构建镜像
