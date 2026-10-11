@@ -73,7 +73,7 @@ go build -o /tmp/gin-finapi main.go
 
 ```text
 main.go
-  → bootstrap.SetupRoute
+  → bootstrap.NewRouter → bootstrap.SetupRoute
   → Recovery → CORS → Logger → 进程内 IP 限流
   → GET /health
   → POST /loan
@@ -85,8 +85,8 @@ main.go
       → CommonRes JSON
 ```
 
-LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；main 装配 Mongo 查询闭包。
-共享 DTO 放在 pkg/loanrequest。Handler 目前仍引用 Mongo 错误分类；Repository 接口尚未使用。
+LoanHandler 显式注入查询、SID 和 Logger，不读取全局配置；bootstrap.NewRouter 装配 Mongo 查询闭包、认证和限流，main 只调用入口。
+共享 DTO 放在 pkg/request。Handler 目前仍引用 Mongo 错误分类；Repository 接口尚未使用。
 
 ### 职责与依赖
 

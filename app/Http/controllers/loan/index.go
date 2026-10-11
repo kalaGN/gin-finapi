@@ -7,13 +7,13 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/gin-finapi/pkg/loanrequest"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
+	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/sirupsen/logrus"
 )
 
-type CommonRes = loanrequest.Response
+type CommonRes = request.Response
 type QueryFunc func(context.Context, string) (map[string]int, error)
 type SIDFunc func(string, int) (string, error)
 
@@ -50,7 +50,7 @@ func NewLoanHandler(query QueryFunc, sid SIDFunc, log *logrus.Logger) (*LoanHand
 }
 
 func (h *LoanHandler) Create(c *gin.Context) {
-	body, ok := loanrequest.Authenticated(c)
+	body, ok := request.Authenticated(c)
 	if !ok {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, CommonRes{Status: rescode.ErrInvalidApikey, Msg: rescode.GetCodeMsg(rescode.ErrInvalidApikey)})
 		return

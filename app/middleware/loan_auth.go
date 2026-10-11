@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/gin-finapi/pkg/loanrequest"
+	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
@@ -18,10 +18,10 @@ func LoanAuth(apiKey, secret string) gin.HandlerFunc {
 	expectedKey := sha256.Sum256([]byte(apiKey))
 	return func(c *gin.Context) {
 		reject := func(code int, message string) {
-			c.AbortWithStatusJSON(http.StatusBadRequest, loanrequest.Response{Status: code, Msg: message})
+			c.AbortWithStatusJSON(http.StatusBadRequest, request.Response{Status: code, Msg: message})
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
-		var body loanrequest.Request
+		var body request.Request
 		if c.ContentType() != "application/json" {
 			reject(rescode.ErrInvalidJSON, rescode.GetCodeMsg(rescode.ErrInvalidJSON))
 			return
@@ -77,7 +77,7 @@ func LoanAuth(apiKey, secret string) gin.HandlerFunc {
 			reject(rescode.ErrInvalidSign, rescode.GetCodeMsg(rescode.ErrInvalidSign))
 			return
 		}
-		loanrequest.SetAuthenticated(c, body)
+		request.SetAuthenticated(c, body)
 		c.Next()
 	}
 }

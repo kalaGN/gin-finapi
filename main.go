@@ -13,13 +13,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
-	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/bootstrap"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	"github.com/kalaGN/gin-finapi/pkg/logger"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
-	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 func main() {
@@ -47,17 +44,10 @@ func main() {
 	}
 
 	// 初始化 Gin 应用
-	router := gin.New()
-	mongoConfig := config.Config.MongoDB
-	handler, err := loan.NewLoanHandler(
-		func(ctx context.Context, phone string) (map[string]int, error) {
-			return mongo.GetMongo(ctx, mongo.Config{DSN: mongoConfig.DSN, DB: mongoConfig.Database, Collection: mongoConfig.Collection, Query: phone})
-		}, utils.GenerateSID, logger.Log,
-	)
+	router, err := bootstrap.NewRouter(*config.Config, logger.Log)
 	if err != nil {
 		log.Fatal(err)
 	}
-	bootstrap.SetupRoute(router, handler.Create, middleware.LoanAuth(config.Config.APIKey, config.Config.SecretKey), logger.Log, config.Config.RateLimit)
 
 	// 获取服务端口
 	port, _ := config.LoadPort()

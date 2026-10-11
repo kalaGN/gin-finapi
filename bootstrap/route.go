@@ -2,12 +2,37 @@
 package bootstrap
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
+	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/pkg/config"
+	"github.com/kalaGN/gin-finapi/pkg/mongo"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/kalaGN/gin-finapi/routes"
 	"github.com/sirupsen/logrus"
 )
+
+// NewRouter assembles HTTP handlers and middleware from startup dependencies.
+// MongoDB connections remain lazy and are not opened during router creation.
+func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, error) {
+	mongoConfig := cfg.MongoDB
+	handler, err := loan.NewLoanHandler(
+		func(ctx context.Context, phone string) (map[string]int, error) {
+			return mongo.GetMongo(ctx, mongo.Config{
+				DSN: mongoConfig.DSN, DB: mongoConfig.Database,
+				Collection: mongoConfig.Collection, Query: phone,
+			})
+		}, utils.GenerateSID, log,
+	)
+	if err != nil {
+		return nil, err
+	}
+	router := gin.New()
+	SetupRoute(router, handler.Create, middleware.LoanAuth(cfg.APIKey, cfg.SecretKey), log, cfg.RateLimit)
+	return router, nil
+}
 
 // SetupRoute 路由初始化
 func SetupRoute(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc, log *logrus.Logger, limit config.RateLimitConfig) {

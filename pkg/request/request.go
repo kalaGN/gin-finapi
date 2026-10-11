@@ -1,5 +1,5 @@
-// Package loanrequest defines the HTTP contract shared by loan authentication and handling.
-package loanrequest
+// Package request defines shared HTTP request and response types.
+package request
 
 import (
 	"bytes"

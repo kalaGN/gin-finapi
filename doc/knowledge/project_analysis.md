@@ -170,8 +170,8 @@ Handler 的错误响应仍需在相关需求中逐项审计。
 
 ### 5.8 已整改：LoanHandler 依赖显式化
 
-2026-10-11 请求 DTO 移到 pkg/loanrequest，解析/认证由 LoanAuth 执行。
-LoanHandler 通过构造函数注入查询、SID 和 Logger，main 装配 Mongo 查询闭包。
+2026-10-11 请求 DTO 移到 pkg/request，解析/认证由 LoanAuth 执行。
+LoanHandler 通过构造函数注入查询、SID 和 Logger，bootstrap.NewRouter 装配 Mongo 查询闭包、认证和限流，main 只调用入口。
 不读取全局配置；HTTP 错误映射仍引用 Mongo 错误分类。以下为历史职责和未来参考，不代表当前实现：
 
 原 Controller 同时负责：

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/gin-finapi/pkg/loanrequest"
+	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/sirupsen/logrus"
@@ -50,7 +50,7 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
-			var response loanrequest.Response
+			var response request.Response
 			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 				t.Fatal(err)
 			}
@@ -81,7 +81,7 @@ func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
 			r.POST("/loan", LoanAuth(tt.key, tt.secret), func(c *gin.Context) {
-				body, ok := loanrequest.Authenticated(c)
+				body, ok := request.Authenticated(c)
 				if !ok || body.Phone.Value != "ciphertext" {
 					t.Fatal("authenticated request not available")
 				}
