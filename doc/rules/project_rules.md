@@ -92,7 +92,7 @@ main.go
 
 LoanHandler 显式注入查询、SID 和 Logger；bootstrap 仅装配查询用例、存储错误适配、认证和限流。
 HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，稳定语义分别来自 app/loan、app/auth。
-Repository 接口尚未使用，不为本查询创建 CRUD 分层。
+未使用的 LoanRepository 接口已移除，不为本查询创建 CRUD 分层。
 
 ### 职责与依赖
 

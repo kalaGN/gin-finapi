@@ -4,7 +4,7 @@
 
 Gin FinAPI 是一个单仓库、单 Go module 的 Gin HTTP 查询服务。当前真实启用的接口为
 `GET /health` 和 `POST /loan`；Loan 请求查询 MongoDB 中的 gzip 数据并映射为变量结果。
-Redis Hash `mongo_map` 按 pcode 提供 JSON 变量映射；Repository/Model 和 HelloWorld gRPC 尚未进入主调用链。
+Redis Hash `mongo_map` 按 pcode 提供 JSON 变量映射；Model 和 HelloWorld gRPC 尚未进入主调用链；未使用的 LoanRepository 接口已移除。
 
 ## 技术与入口
 

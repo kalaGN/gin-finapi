@@ -1,5 +1,7 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-12：已删除无引用的 `app/repositories/loan_repository.go`；下文 Repository 存在性描述为历史记录，模型保留。
+
 > 初次分析：2026-08-03；本轮认证/加密/Handler 复核：2026-10-11
 > 分析分支：`main`
 > 历史审计基线：`85e21d3`。2026-10-11 已复核 phone 原值查询、Mongo 同包拆分及 Redis 产品映射；其他历史审计未全量复核。
