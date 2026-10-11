@@ -41,11 +41,11 @@ func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.H
 			return
 		}
 		if body.Phone.Value == "" {
-			reject(rescode.ErrMissingParam, "phone is required")
+			reject(rescode.ErrMissingParam, rescode.MsgPhoneRequired)
 			return
 		}
 		if !body.Pcode.Set || body.Pcode.Err != nil {
-			reject(rescode.ErrInvalidPcode, "pcode must be a number")
+			reject(rescode.ErrInvalidPcode, rescode.MsgPcodeMustBeNumber)
 			return
 		}
 		if body.Pcode.Value < 10001 || body.Pcode.Value > 99999 {
@@ -70,7 +70,7 @@ func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.H
 			return
 		}
 		if !body.Timestamp.Set || body.Timestamp.Err != nil {
-			reject(rescode.ErrInvalidTimestamp, "timestamp must be a number")
+			reject(rescode.ErrInvalidTimestamp, rescode.MsgTimestampMustBeNumber)
 			return
 		}
 		if !utils.VerifyTimestamp(body.Timestamp.Value) {
@@ -78,7 +78,7 @@ func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.H
 			return
 		}
 		if body.Sign == "" {
-			reject(rescode.ErrInvalidSign, "sign is required")
+			reject(rescode.ErrInvalidSign, rescode.MsgSignRequired)
 			return
 		}
 		params := map[string]interface{}{

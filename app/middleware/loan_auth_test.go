@@ -63,6 +63,44 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 	}
 }
 
+func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name, field string
+		value       interface{}
+		code        int
+		message     string
+	}{
+		{"missing phone", "phone", "", 1001, "phone is required"},
+		{"invalid pcode", "pcode", "invalid", 1003, "pcode must be a number"},
+		{"invalid timestamp", "timestamp", "invalid", 1005, "timestamp must be a number"},
+		{"missing sign", "sign", "", 2002, "sign is required"},
+		{"invalid key", "apikey", "unknown-key", 2001, "apikey无效"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli(), "sign": "test-sign"}
+			body[tc.field] = tc.value
+			data, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			router := gin.New()
+			router.POST("/loan", LoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
+			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			var response request.Response
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != http.StatusBadRequest || response.Status != tc.code || response.Msg != tc.message {
+				t.Fatalf("HTTP %d, body %s; want 400/%d/%q", w.Code, w.Body, tc.code, tc.message)
+			}
+		})
+	}
+}
+
 func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	valid := map[string]interface{}{"phone": "ciphertext", "pcode": 99999, "apikey": "key", "timestamp": time.Now().UnixMilli()}

@@ -94,6 +94,14 @@ const (
 	Err1101 = 1101 // 旧版：illegal parameter apikey
 )
 
+// 参数场景文案保留现有响应契约；同一业务码可能对应不同校验原因。
+const (
+	MsgPhoneRequired         = "phone is required"
+	MsgPcodeMustBeNumber     = "pcode must be a number"
+	MsgTimestampMustBeNumber = "timestamp must be a number"
+	MsgSignRequired          = "sign is required"
+)
+
 // ==================== 错误消息映射 ====================
 var codeMessages = map[int]string{
 	// 成功
