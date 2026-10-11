@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kalaGN/gin-finapi/app/auth"
+	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
 )
@@ -49,6 +51,99 @@ func TestAPIKeys_Load(t *testing.T) {
 				t.Fatal("credentials were cached")
 			}
 		})
+	}
+}
+
+func TestAPIKeys_LoadProductReadsSourceAndDeniesDisabled(t *testing.T) {
+	raw := `{"version":1,"status":1,"expires_at":0}`
+	calls := 0
+	now := time.Unix(100, 0)
+	keys := &APIKeys{
+		timeout: time.Second,
+		now:     func() time.Time { return now },
+		get: func(_ context.Context, key string) (string, error) {
+			calls++
+			if key != APIKeyProductRedisKey("client-key", 10001) {
+				t.Fatalf("unexpected Redis key: %s", key)
+			}
+			return raw, nil
+		},
+	}
+	for i := 0; i < 2; i++ {
+		if err := keys.LoadProduct(context.Background(), "client-key", 10001); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("Redis reads = %d, want 2", calls)
+	}
+	now = now.Add(5 * time.Minute)
+	raw = `{"version":1,"status":0,"expires_at":0}`
+	if err := keys.LoadProduct(context.Background(), "client-key", 10001); !errors.Is(err, auth.ErrProductDenied) {
+		t.Fatalf("LoadProduct() error = %v, want product denial", err)
+	}
+	if calls != 3 {
+		t.Fatalf("Redis reads = %d, want 3", calls)
+	}
+}
+
+func TestParseProductAccessRejectsInvalidRecords(t *testing.T) {
+	for _, raw := range []string{
+		`null`, `[]`, `{}`, `{"version":1,"status":1,"expires_at":0}{}`,
+		`{"version":1,"status":null,"expires_at":0}`,
+		`{"version":1,"status":2,"expires_at":0}`,
+		`{"version":1,"version":1,"status":1,"expires_at":0}`,
+		`{"version":1,"status":1,"expires_at":-1}`,
+		`{"version":1,"status":1,"expires_at":0,"extra":true}`,
+	} {
+		if _, err := parseProductAccess(raw); err == nil {
+			t.Fatalf("accepted invalid product authorization record: %s", raw)
+		}
+	}
+}
+
+func TestReadSourcesPreserveStatusAndClassifyInvalid(t *testing.T) {
+	for _, product := range []bool{false, true} {
+		for _, tc := range []struct {
+			raw            string
+			driverErr      error
+			found, invalid bool
+		}{
+			{`{"version":1,"secret":"secret","status":0,"expires_at":1}`, nil, true, false},
+			{"", driver.Nil, false, false},
+			{"{", nil, false, true},
+			{"", errors.New("sensitive driver error"), false, false},
+		} {
+			raw := tc.raw
+			if product && tc.found {
+				raw = `{"version":1,"status":0,"expires_at":1}`
+			}
+			keys := &APIKeys{timeout: time.Second, get: func(context.Context, string) (string, error) { return raw, tc.driverErr }}
+			var found bool
+			var err error
+			if product {
+				var v auth.ProductAccess
+				v, found, err = keys.ReadProductAccess(context.Background(), configdata.ProductKey{Digest: configdata.Digest("key"), Pcode: 10001})
+				if found && (v.Status != 0 || v.ExpiresAt != 1) {
+					t.Fatal("source erased refusal")
+				}
+			} else {
+				var v auth.Credential
+				v, found, err = keys.ReadCredential(context.Background(), configdata.Digest("key"))
+				if found && (v.Status != 0 || v.ExpiresAt != 1) {
+					t.Fatal("source erased refusal")
+				}
+			}
+			if found != tc.found || errors.Is(err, configdata.ErrInvalidRecord) != tc.invalid {
+				t.Fatalf("found=%v err=%v", found, err)
+			}
+			if err != nil && !errors.Is(err, auth.ErrUnavailable) {
+				t.Fatal("wrong source error")
+			}
+			if tc.driverErr != nil && tc.driverErr != driver.Nil && err == nil {
+				t.Fatal("source swallowed failure")
+			}
+		}
 	}
 }
 

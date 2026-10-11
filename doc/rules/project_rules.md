@@ -15,7 +15,7 @@
   `go test -race ./...`、`go build ./...`，在 `main`/`dev` 推送和 Pull Request 时触发。
 - 未发现项目级 golangci-lint、Makefile、Dockerfile、Kubernetes、Nginx 或数据库迁移工具。
 - 当前功能边界是健康检查、按 pcode 从 Redis 读取映射并查询 MongoDB、解压后映射变量。gRPC Server、
-  Repository 实现、消息队列、GraphQL、定时任务均未确认进入运行链路。
+  Repository 实现、消息队列和 GraphQL 未确认进入运行链路；配置缓存已有后台刷新。
 
 ### 目录职责
 
@@ -27,13 +27,14 @@
 | `app/Http/controllers/loan/` | 已认证请求处理、phone 查询标识、SID 和 HTTP 响应 |
 | `app/loan/`、`app/auth/` | 查询用例、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
 | `app/middleware/` | CORS、日志、进程内限流、LoanAuth；旧 auth.go 未进入主链路 |
+| `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、后台刷新及关闭 |
 | `pkg/config/` | 主调用链的环境配置入口 |
 | `pkg/env/` | 遗留的重复配置工具，当前未进入主调用链 |
 | `pkg/mongo/` | Store 实例、客户端、查询、gzip 解压和变量映射；无全局客户端入口 |
 | `pkg/redis/` | 产品映射与凭据读取器，统一选项、独立池；旧 redis.go 未接入主链路 |
 | `pkg/rescode/`、`pkg/utils/` | 业务码、SID、时间戳和签名工具 |
 | `app/protos/helloworld/` | 未接入 Server 的 Proto 示例及生成代码 |
-| `cmd/` | 会重建测试集合的 Mongo CLI、用 HSETNX 保留已有产品映射的 Redis CLI |
+| `cmd/` | 会重建测试集合的 Mongo CLI、用 SET NX 保留已有产品映射的 Redis CLI及显式迁移 |
 | `tests/bench/` | 有外部请求副作用的 Apache Bench 脚本 |
 
 ### 非目标
@@ -83,7 +84,7 @@ main.go
   → POST /loan
       → LoanAuth 单次 JSON/字段/API Key/时间戳/原值签名校验
       → LoanHandler 归一化查询标识 → app/loan 查询用例
-      → Redis HGET mongo_map pcode，校验 JSON 字段映射
+      → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
       → mongo.Store.Query（实例配置）
       → Mongo FindOne(t=phone)
       → gzip 解压 v → CSV 整数映射
@@ -107,7 +108,7 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 
 ### 未建立的边界
 
-- 当前没有应用级事务、异步消息、后台任务或分布式一致性边界。
+- 当前没有应用级事务、异步消息或分布式一致性协议；配置缓存每五分钟刷新，不保证跨键原子快照。
 - 当前没有依赖注入容器；Mongo 配置和客户端仅由 Store 持有，不再提供全局兼容入口；查询用例与 Handler 通过函数注入。
 - 新事务、异步处理或外部服务调用必须先通过 Spec 明确一致性、超时、重试和回滚。
 - 现有结构不一致应记录风险，不借局部需求擅自进行全仓重构。
@@ -138,9 +139,10 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
   SHA-256（64 位十六进制）需后续服务映射为原手机号 MD5，目前 TODO，返回 503/9002，不直接查询。
   既有 20 位及其他历史非空标识保持原值兼容，不解密或对摘要重新哈希。
 - /loan 认证中间件通过 JSON apikey 的 SHA-256 摘要读取 Redis String 凭据并验证启停和到期，Body 上限 64 KiB，只解析一次。
+- 签名验证后，经统一读取层按 API Key+pcode 检查产品授权；未命中读 Redis，每 5 分钟后台刷新，不检查缓存年龄；逐次检查业务到期。
 - 签名当前把原始 `phone`、`pcode`、`apikey`、`timestamp` 按 key 排序拼接，加对应凭据 `secret` 后计算
   大写 MD5。该算法存在安全/演进风险，但在确认客户端兼容前不得擅自替换。
-- 成功数据字段由 mongo_map 的产品映射决定；既有六变量示例仍可配置。变更映射须核对 CSV 列序和客户端兼容。
+- 成功数据字段由产品 String KV 的映射决定；既有六变量示例仍可配置。变更映射须核对 CSV 列序和客户端兼容。
 - 产品映射缺失或无效为 200/6001；Redis 不可用（包括读取超时）为 503/9002，不回退或误报未查得。
 - 当前没有分页、版本前缀、废弃策略或幂等键约定；标记“待确认”，不能自行创建。
 - CORS 当前允许任意 Origin；是否收紧取决于真实调用方和部署环境，需先确认。
@@ -240,7 +242,7 @@ go build ./...
 
 ### 已确认缺口
 
-- LoanAuth 每次读取独立 Redis String 凭据，支持多 Key、独立 secret、禁用与到期；没有账号层或产品授权校验，历史多级缓存方案仍为草案。
+- LoanAuth 经配置读取层优先读内存，未命中读独立 Redis String 凭据，支持多 Key、独立 secret、禁用与到期；无账号层。验签后检查产品授权。
 - 凭据缺失/禁用/到期返回 400/2001；Redis 故障/损坏记录返回 503/9002，不允许环境变量兜底或自动写入。
 - 请求日志只记录安全元数据，不读取或缓存 Body；传输仍需 HTTPS。
 - 签名仍使用 MD5，但比较已使用常量时间实现；五分钟内仍没有 nonce/幂等防重放机制。
@@ -316,8 +318,14 @@ go build ./...
 - 核心查询按集合字段 `t` 精确查找，字段 `v` 是 gzip 压缩的六个逗号分隔整数。
 - 初始化 CLI 为 `t` 创建唯一升序索引，并重建 `data_20251101_0` 至 `data_20251101_f`，但运行服务
   默认只读取配置指定集合；集合选择/分片规则待确认。
-- Redis Hash mongo_map 已接入核心路径，以十进制 pcode 为 field、JSON 为 value。
-  不自动写入，读取继承请求 Context，并受 REDIS_TIMEOUT 限制；不缓存或回退硬编码映射。
+- Redis String gin-finapi:product-map:v1:<pcode> 已接入核心路径，JSON 和 Mongo 数据格式不变。
+  旧 Hash 必须显式迁移，不自动写入或回退；内存命中不检查年龄。
+  刷新缺失/损坏移除，临时故障保留，禁用替换；持续故障时远端撤销传播无硬上限。
+  合并回源使用读取器生命周期 Context 和 REDIS_TIMEOUT，等待者独立响应请求取消。
+  三类 LRU 容量独立，回源共用并发上限；不缓存失败，不无界创建刷新 goroutine。
+  MySQL 未接入，不得在故障时自动降级到低层数据源。
+  REDIS_CACHE_ENABLED 默认 true；false 时逐请求直读，无回填、合并读取或刷新，不提供旧快照兜底。
+  开关启动时读取，修改后重启生效；不得因关闭缓存而跳过授权、状态、到期或格式校验。
 
 ### 规则
 

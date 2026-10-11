@@ -2,8 +2,6 @@ package redis
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kalaGN/gin-finapi/app/auth"
+	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
 )
@@ -33,8 +32,7 @@ type APIKeys struct {
 
 // APIKeyRedisKey derives the storage key without exposing the original credential.
 func APIKeyRedisKey(apiKey string) string {
-	sum := sha256.Sum256([]byte(apiKey))
-	return "gin-finapi:auth:apikey:v1:" + hex.EncodeToString(sum[:])
+	return "gin-finapi:auth:apikey:v1:" + configdata.Digest(apiKey)
 }
 
 // NewAPIKeys 使用统一客户端选项创建独立、懒连接的认证读取器。
@@ -44,9 +42,10 @@ func NewAPIKeys(cfg config.RedisConfig) (*APIKeys, error) {
 		return nil, err
 	}
 
-	return &APIKeys{get: func(ctx context.Context, key string) (string, error) {
+	keys := &APIKeys{get: func(ctx context.Context, key string) (string, error) {
 		return client.Get(ctx, key).Result()
-	}, close: client.Close, timeout: cfg.Timeout, now: time.Now}, nil
+	}, close: client.Close, timeout: cfg.Timeout, now: time.Now}
+	return keys, nil
 }
 
 // Load distinguishes denied credentials from unavailable or corrupt storage.
@@ -75,7 +74,27 @@ func (keys *APIKeys) Load(ctx context.Context, apiKey string) (APIKeyCredential,
 }
 
 // Close releases the reader's pool without modifying Redis records.
-func (keys *APIKeys) Close() error { return keys.close() }
+func (keys *APIKeys) Close() error {
+	return keys.close()
+}
+
+// ReadCredential 读取已摘要化的键，保留禁用/到期状态供读取层逐次判断。
+func (keys *APIKeys) ReadCredential(ctx context.Context, digest string) (auth.Credential, bool, error) {
+	readCtx, cancel := context.WithTimeout(ctx, keys.timeout)
+	defer cancel()
+	raw, err := keys.get(readCtx, "gin-finapi:auth:apikey:v1:"+digest)
+	if errors.Is(err, driver.Nil) {
+		return auth.Credential{}, false, nil
+	}
+	if err != nil {
+		return auth.Credential{}, false, auth.ErrUnavailable
+	}
+	value, err := parseAPIKeyCredential(raw)
+	if err != nil {
+		return auth.Credential{}, false, errors.Join(auth.ErrUnavailable, configdata.ErrInvalidRecord)
+	}
+	return value, true, nil
+}
 
 func parseAPIKeyCredential(raw string) (APIKeyCredential, error) {
 	invalid := func() (APIKeyCredential, error) { return APIKeyCredential{}, ErrAuthUnavailable }

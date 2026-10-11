@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
@@ -96,6 +97,42 @@ func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
 			}
 			if w.Code != http.StatusBadRequest || response.Status != tc.code || response.Msg != tc.message {
 				t.Fatalf("HTTP %d, body %s; want 400/%d/%q", w.Code, w.Body, tc.code, tc.message)
+			}
+		})
+	}
+}
+
+func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+	body["sign"] = utils.GenerateSign(body, "secret")
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"allowed", nil, http.StatusNoContent},
+		{"denied", auth.ErrProductDenied, http.StatusForbidden},
+		{"unavailable", auth.ErrUnavailable, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := gin.New()
+			router.POST("/loan", LoanAuthWithProduct(testKeyReader("key", "secret"), func(_ context.Context, key string, pcode int) error {
+				if key != "key" || pcode != 10001 {
+					t.Fatalf("product lookup key=%q pcode=%d", key, pcode)
+				}
+				return tc.err
+			}), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != tc.want {
+				t.Fatalf("HTTP status = %d, want %d; body=%s", w.Code, tc.want, w.Body)
 			}
 		})
 	}

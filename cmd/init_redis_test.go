@@ -16,16 +16,68 @@ import (
 )
 
 type fakeRedisInitializer struct {
-	calls      int
-	added      bool
-	err        error
-	key, field string
-	value      interface{}
+	calls int
+	added bool
+	err   error
+	key   string
+	value interface{}
+}
+type fakeMigrator struct {
+	fakeRedisInitializer
+	raw     string
+	readErr error
+	reads   int
 }
 
-func (fake *fakeRedisInitializer) HSetNX(ctx context.Context, key, field string, value interface{}) *redis.BoolCmd {
+func (f *fakeMigrator) HGet(_ context.Context, key, field string) *redis.StringCmd {
+	if key != "mongo_map" || field != "10001" {
+		panic("incorrect legacy lookup")
+	}
+	f.reads++
+	return redis.NewStringResult(f.raw, f.readErr)
+}
+
+func TestMigrateRedisMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw string
+		readErr   error
+		added     bool
+		wantErr   bool
+		writes    int
+	}{
+		{"valid", `{"custom":2}`, nil, true, false, 1},
+		{"existing preserved", `{"custom":2}`, nil, false, false, 1},
+		{"missing", "", redis.Nil, false, true, 0},
+		{"failure", "", errors.New("sensitive driver detail"), false, true, 0},
+		{"invalid", `{"custom":null}`, nil, false, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeMigrator{fakeRedisInitializer: fakeRedisInitializer{added: tc.added}, raw: tc.raw, readErr: tc.readErr}
+			added, err := migrateRedisMapping(context.Background(), f, 10001)
+			if added != tc.added || (err != nil) != tc.wantErr || f.calls != tc.writes {
+				t.Fatalf("added=%v err=%v calls=%d", added, err, f.calls)
+			}
+			if f.calls > 0 && (f.key != appredis.ProductMapRedisKey(10001) || f.value != tc.raw) {
+				t.Fatal("migration changed mapping")
+			}
+		})
+	}
+	f := &fakeMigrator{}
+	if _, err := migrateRedisMapping(context.Background(), f, 0); err == nil || f.reads != 0 {
+		t.Fatal("invalid pcode used")
+	}
+	f = &fakeMigrator{fakeRedisInitializer: fakeRedisInitializer{err: errors.New("write failed")}, raw: `{"a":0}`}
+	if _, err := migrateRedisMapping(context.Background(), f, 10001); err == nil {
+		t.Fatal("write error swallowed")
+	}
+}
+
+func (fake *fakeRedisInitializer) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.BoolCmd {
 	fake.calls++
-	fake.key, fake.field, fake.value = key, field, value
+	fake.key, fake.value = key, value
+	if ttl != 0 {
+		panic("unexpected TTL")
+	}
 	return redis.NewBoolResult(fake.added, fake.err)
 }
 
@@ -45,11 +97,8 @@ func TestSeedRedisMapping(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := &fakeRedisInitializer{added: tc.added, err: tc.err}
 			added, err := seedRedisMapping(context.Background(), fake, tc.pcode)
-			if added != tc.added || !errors.Is(err, tc.err) || fake.calls != 1 || fake.key != "mongo_map" {
+			if added != tc.added || !errors.Is(err, tc.err) || fake.calls != 1 || fake.key != appredis.ProductMapRedisKey(tc.pcode) {
 				t.Fatalf("added=%v error=%v calls=%d key=%s", added, err, fake.calls, fake.key)
-			}
-			if tc.pcode == 10001 && fake.field != "10001" || tc.pcode == 10002 && fake.field != "10002" {
-				t.Fatalf("field=%s", fake.field)
 			}
 			var mapping map[string]int
 			if err := json.Unmarshal([]byte(fake.value.(string)), &mapping); err != nil {

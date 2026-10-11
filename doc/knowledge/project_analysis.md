@@ -2,14 +2,14 @@
 
 > 2026-10-12：已删除无引用的 `app/repositories/loan_repository.go`；下文 Repository 存在性描述为历史记录，模型保留。
 
-> 初次分析：2026-08-03；本轮认证/加密/Handler 复核：2026-10-11
+> 初次分析：2026-08-03；本轮统一缓存、产品 KV 和生命周期复核：2026-10-12
 > 分析分支：`main`
 > 历史审计基线：`85e21d3`。2026-10-11 已复核 phone 原值查询、Mongo 同包拆分及 Redis 产品映射；其他历史审计未全量复核。
 
 ## 2026-10-11 API Key 存储变更
 
 LoanAuth 已改为每次 GET 独立 Redis String 凭据，使用每 Key secret 验签，支持禁用及 Unix 秒到期。
-移除 API_KEY/SECRET_KEY 配置读取，无静态回退、账号层或产品授权；损坏记录与 Redis 故障拒绝为 503/9002。
+移除 API_KEY/SECRET_KEY 配置读取，无静态回退或账号层；产品授权按 API Key+pcode 校验并做进程内缓存。损坏记录与 Redis 故障拒绝为 503/9002。
 真实数据迁移与 Redis/Mongo 集成尚未验证。下文较早静态认证描述以本节和最新 Spec 为准。
 
 ## 1. 分析结论
@@ -29,7 +29,7 @@ pkg/mongo/store.go、pkg/redis/client.go，以及对应测试和 CI。
   app/auth 定义凭据与认证错误，中间件不直接依赖 Redis 类型。
 - Redis 统一客户端选项，认证/产品映射各自拥有一个池；PoolSize 分别作用于每池，不是全应用上限。
 - Redis CLI 保持单文件运行，CI 显式覆盖独立 vet、竞态测试和编译；不运行或写入外部数据。
-- 没有新增依赖、API、产品授权、数据迁移、缓存或重试；实际 Redis/Mongo 故障集成和容量未验证。
+- 没有新增依赖；凭据、授权和映射统一缓存，每五分钟后台刷新。产品映射改为 String KV，发布前须显式迁移旧 Hash，本轮未运行迁移。实际 Redis/Mongo 集成及容量未验证。
 
 Gin FinAPI 当前是一个体量较小、调用链直接的 Go/Gin API 查询服务。项目可以正常编译，已有单元测试、竞态检测和静态检查均通过，但业务测试覆盖不足，安全、错误治理、并发安全和模块边界仍有明显缺口。
 
@@ -44,7 +44,7 @@ Gin FinAPI 当前是一个体量较小、调用链直接的 Go/Gin API 查询服
 | 开发语言 | Go 1.24 |
 | HTTP 框架 | Gin 1.11.0 |
 | 数据库 | MongoDB Driver 1.17.2 |
-| Redis | go-redis 9.7.0，按 pcode 从 Hash mongo_map 读取变量映射 |
+| Redis | go-redis 9.7.0，按 pcode 从 String 产品 KV 读取变量映射 |
 | 日志 | Logrus 1.8.1 |
 | 配置 | godotenv + 环境变量 |
 | RPC | gRPC/Protobuf，目前只有 HelloWorld 示例 |
@@ -66,7 +66,7 @@ POST /loan
   → Gin 全局中间件
   → LoanAuth：单次 JSON/类型/配置 API Key/时间戳/原值签名校验
   → 注入式 LoanHandler：MD5 截前 20 位，旧查询标识兼容
-  → Redis HGET mongo_map pcode：加载 JSON 变量映射
+  → app/configdata 内存优先，未命中 GET 产品 KV：加载 JSON 变量映射
   → MongoDB 按 phone 查询字段 t
   → gzip 解压字段 v
   → 解析逗号分隔数据
@@ -186,12 +186,15 @@ codec.go 解压 gzip、校验 CSV 并映射变量，errors.go 定义和分类错
 BSON t/v、gzip/CSV、查询错误和超时契约不变；按用户要求删除旧全局导出入口及未使用的 connectToMongoDB。
 新增离线特征测试覆盖实际 BSON 查询和文档类型、完整六变量映射及异常数据；不代表真实 Mongo 集成验证。
 
-2026-10-11 产品映射已改为 Redis Hash `mongo_map`：field 为十进制 pcode，value 为非空 JSON 对象，
-变量名对应非负整数 CSV 下标。每次请求读取，不缓存、不回写、不回退；配置 `REDIS_TIMEOUT` 默认 1s。
+2026-10-12 产品映射改为 Redis String `gin-finapi:product-map:v1:<pcode>`，value 为非空 JSON 对象，
+变量名对应非负整数 CSV 下标。与凭据、授权统一内存优先，未命中读 Redis，每五分钟后台刷新。
+无缓存年龄判断；状态和业务到期逐次检查。临时故障保留，明确删除/损坏移除，不回写或硬编码回退。
+`REDIS_TIMEOUT` 默认 1s，LRU 容量默认 1000/10000/1000，共用回源并发默认 4；未做生产容量验证。
+`REDIS_CACHE_ENABLED` 默认 true；false 时三类配置每请求直读 Redis，不回填、不合并、不启动刷新，重启生效。
 缺失、重复键、空对象或无效 JSON 返回 HTTP 200/6001；Redis 故障或读取超时返回 HTTP 503/9002，
 这些分支不访问 Mongo。CSV 长度仍须等于最大下标加一，BSON t/v 和 gzip 格式不变。
-正常关闭在 HTTP/Mongo 之后释放 Redis；启动 goroutine 的 Fatal 错误通道仍待独立 Spec 确认。
-启动、错误通道与关闭策略仍待另一份 Spec 确认，本次未实施。
+关闭顺序为 HTTP 排空、缓存 worker/回源取消及等待、Mongo Store、Redis 池。
+迁移工具按产品 HGET 旧 Hash → 校验 → SET NX 新键，保留源和已有目标；本轮未连接实际 Redis。
 
 ### 5.6 已整改：核心 Mongo 错误分类及对外泄露
 

@@ -2,10 +2,10 @@
 
 ## Redis 产品变量映射
 
-`init_redis.go` 将六变量 JSON 写入 Redis Hash `mongo_map`，field 默认为产品 `10001`。
+`init_redis.go` 将六变量 JSON 写入 Redis String `gin-finapi:product-map:v1:<pcode>`，产品默认为 `10001`。
 读取根目录 `.env` 或环境中的 `REDIS_ADDR`、`REDIS_PASSWORD`、`REDIS_DB`、
 `REDIS_POOL_SIZE`、`REDIS_TIMEOUT`，默认值与应用一致。无需配置 API Key 或 Mongo。
-配置加载复用应用入口，因此已设置的限流参数也必须合法。
+配置加载复用应用入口，因此已设置的限流及缓存参数也必须合法。
 
 仅在确认目标 Redis 和 DB 后，从仓库根目录运行：
 
@@ -14,7 +14,7 @@ go run cmd/init_redis.go
 go run cmd/init_redis.go -pcode 10002
 ```
 
-使用 `HSETNX`，已存在的产品字段不会覆盖（包括已有无效 JSON）；不删键、不清库、不操作 Mongo。
+使用 `SET NX`，已存在的产品键不会覆盖（包括已有无效 JSON）；不删键、不清库、不操作 Mongo。
 执行失败返回非零状态，连接始终尝试关闭。不在应用启动时自动运行。
 脚本使用独立 build tag 避免同目录双 main；默认 `go test ./...` 不包含它，另执行离线测试：
 
@@ -28,7 +28,7 @@ CI 现已显式执行上述独立测试、vet 和单文件编译，不执行程�
 
 ## API Key 与产品 String KV 样例
 
-显式添加 `-auth-samples` 才写入认证样例，默认仍只写 mongo_map。
+显式添加 `-auth-samples` 才写入认证样例，默认仍只写产品映射 KV。
 确认隔离 Redis 目标后，设置 `INIT_API_KEY`、`INIT_API_SECRET`，再运行：
 
 ```bash
@@ -49,7 +49,21 @@ go run cmd/init_redis.go -pcode 10001 -auth-samples
 样例启用且永不过期，无 Redis TTL；仅适用于明确指定的测试环境。
 三个写操作（映射、凭据、授权）不是事务，失败可能已部分写入；可重试补齐，
 但“保留已有值”不代表已有值正确或匹配传入 secret。
-产品授权记录仅作为未来结构样例，当前服务尚未执行产品授权校验。
+当前服务在验签后检查产品授权；修改后等待下一轮缓存刷新或重启进程，业务到期逐次检查。
+
+## 旧产品 Hash 显式迁移
+
+新服务只读 String KV，不隐式回退旧 `mongo_map`。发布前核对所有有效 pcode 和目标 Redis/DB，
+获得授权后，对每个产品单独执行（下列命令会写数据，本轮未执行）：
+
+```bash
+go run cmd/init_redis.go -pcode 10001 -migrate-map
+```
+
+工具 HGET 旧字段，复用线上 JSON 校验后 SET NX 新键；源缺失/损坏或写入失败返回非零。
+不修改 JSON、不删除旧 Hash，不覆盖已有目标或其 TTL。目标已存在只表示“保留”，不保证值正确。
+核对新旧值、类型及 TTL，离线/隔离环境验证查询后再切换；源正在变更时先协调暂停配置更新，
+迁移并非跨键事务。旧 Hash 保留供回滚；切换后的 KV 更新需另外同步旧 Hash 才能无损回滚。
 
 ## MongoDB 初始化工具
 
@@ -104,7 +118,7 @@ go run cmd/init_mongo.go
 "123,456,789,234,567,890"
 ```
 
-对应的数据映射（由 Redis `mongo_map` 配置，`init_redis.go` 可初始化）：
+对应的数据映射（由 Redis 产品 String KV 配置，`init_redis.go` 可初始化）：
 - var100001: 第1个值 (索引0)
 - var100002: 第2个值 (索引1)
 - var100003: 第3个值 (索引2)

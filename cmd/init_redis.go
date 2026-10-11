@@ -23,13 +23,14 @@ import (
 func main() {
 	pcode := flag.Int("pcode", 10001, "需要初始化的产品编码（10001–99999）")
 	authSamples := flag.Bool("auth-samples", false, "增加 API Key 凭据和产品授权样例（从 INIT_API_KEY/INIT_API_SECRET 读取）")
+	migrateMap := flag.Bool("migrate-map", false, "将指定产品的旧 mongo_map 字段迁移到 String KV，不覆盖目标或删除旧值")
 	flag.Parse()
-	if err := runRedisInit(*pcode, *authSamples); err != nil {
+	if err := runRedisInit(*pcode, *authSamples, *migrateMap); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func runRedisInit(pcode int, authSamples bool) (err error) {
+func runRedisInit(pcode int, authSamples, migrateMap bool) (err error) {
 	if pcode < 10001 || pcode > 99999 {
 		return fmt.Errorf("pcode 必须在 10001–99999 之间")
 	}
@@ -56,14 +57,19 @@ func runRedisInit(pcode int, authSamples bool) (err error) {
 	defer func() { err = errors.Join(err, client.Close()) }()
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
-	added, err := seedRedisMapping(ctx, client, pcode)
+	var added bool
+	if migrateMap {
+		added, err = migrateRedisMapping(ctx, client, pcode)
+	} else {
+		added, err = seedRedisMapping(ctx, client, pcode)
+	}
 	if err != nil {
-		return fmt.Errorf("初始化 mongo_map 产品 %d 失败: %w", pcode, err)
+		return fmt.Errorf("准备产品映射 %d 失败，请检查源数据、目标类型和 Redis 连接", pcode)
 	}
 	if added {
-		log.Printf("已初始化 mongo_map 产品 %d", pcode)
+		log.Printf("已写入产品 KV 映射 %d", pcode)
 	} else {
-		log.Printf("mongo_map 产品 %d 已存在，保留原值", pcode)
+		log.Printf("产品 KV 映射 %d 已存在，保留原值", pcode)
 	}
 	if authSamples {
 		credentialAdded, productAdded, err := seedRedisAuthSamples(ctx, client, pcode, apiKey, secret)
@@ -77,16 +83,36 @@ func runRedisInit(pcode int, authSamples bool) (err error) {
 
 // redisInitializer 隔离写操作，离线测试不连接实际 Redis。
 type redisInitializer interface {
-	HSetNX(context.Context, string, string, interface{}) *redis.BoolCmd
+	SetNX(context.Context, string, interface{}, time.Duration) *redis.BoolCmd
 }
 
-// seedRedisMapping 只添加缺失字段，不覆盖已有产品或删除其他映射。
+// seedRedisMapping 只添加缺失键，不覆盖已有产品或删除其他映射。
 func seedRedisMapping(ctx context.Context, client redisInitializer, pcode int) (bool, error) {
 	if pcode < 10001 || pcode > 99999 {
 		return false, fmt.Errorf("pcode 必须在 10001–99999 之间")
 	}
 	const mapping = `{"var100001":0,"var100002":1,"var100003":2,"var100004":3,"var100005":4,"var100006":5}`
-	return client.HSetNX(ctx, "mongo_map", strconv.Itoa(pcode), mapping).Result()
+	return client.SetNX(ctx, appredis.ProductMapRedisKey(pcode), mapping, 0).Result()
+}
+
+type redisMappingMigrator interface {
+	redisInitializer
+	HGet(context.Context, string, string) *redis.StringCmd
+}
+
+// migrateRedisMapping 显式迁移一个产品；保留旧 Hash，以便旧版本回滚。
+func migrateRedisMapping(ctx context.Context, client redisMappingMigrator, pcode int) (bool, error) {
+	if pcode < 10001 || pcode > 99999 {
+		return false, errors.New("pcode 必须在 10001–99999 之间")
+	}
+	raw, err := client.HGet(ctx, "mongo_map", strconv.Itoa(pcode)).Result()
+	if err != nil {
+		return false, errors.New("旧产品映射读取失败或缺失")
+	}
+	if err := appredis.ValidateProductMap(raw); err != nil {
+		return false, errors.New("旧产品映射 JSON 无效")
+	}
+	return client.SetNX(ctx, appredis.ProductMapRedisKey(pcode), raw, 0).Result()
 }
 
 // redisAuthInitializer only permits non-overwriting String writes.
@@ -119,7 +145,7 @@ func seedRedisAuthSamples(ctx context.Context, client redisAuthInitializer, pcod
 	if err != nil {
 		return false, false, errors.New("写入凭据样例失败")
 	}
-	productKey := "gin-finapi:auth:apikey-product:v1:" + key[len("gin-finapi:auth:apikey:v1:"):] + ":" + strconv.Itoa(pcode)
+	productKey := appredis.APIKeyProductRedisKey(apiKey, pcode)
 	productAdded, err := client.SetNX(ctx, productKey, `{"version":1,"status":1,"expires_at":0}`, 0).Result()
 	if err != nil {
 		return added, false, errors.New("写入产品授权样例失败")

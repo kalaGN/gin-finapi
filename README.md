@@ -166,13 +166,22 @@ phone 是非空字符串：完整 32 位十六进制 MD5 截前 20 位查 Mongo 
 既有 20 位查询标识继续原样查询。64 位十六进制 SHA-256 的转换服务尚未接入（TODO），
 当前返回 HTTP 503 + 9002，不直接查库或对摘要再哈希。其他历史非空值沿用原值兼容。
 签名按原规则对 phone、pcode、apikey、timestamp 排序拼接，加该 API Key 对应的 secret 后做大写 MD5。
-请求 apikey 必须对应 Redis 中启用且未到期的凭据；timestamp 为过去五分钟内的 Unix 毫秒。
+请求 apikey 必须对应 Redis 中启用且未到期的凭据，且对请求 pcode 有启用授权；timestamp 为过去五分钟内的 Unix 毫秒。
 上面的 timestamp 和 sign 只是结构示意，联调时需要实时生成。
 [设计与请求示例](doc/specs/20261011-请求加密鉴权-设计.md)。
 
 请求必须使用 application/json，Body 最大 64 KiB。无效 API Key 返回 400/2001；
 phone 类型错误返回 400/1002、缺失或空字符串返回 400/1001。其他错误映射保持原约定。
 URL 参数和 nonce 不参与当前 JSON 验签；PHONE_AES_KEY 不再读取或必填。
+
+API Key 产品授权从 Redis String `gin-finapi:auth:apikey-product:v1:<sha256(apikey)>:<pcode>` 读取，
+Value 为 `{"version":1,"status":1,"expires_at":0}`。凭据、授权和产品映射统一经 `app/configdata` 读取：
+内存优先，未命中读 Redis 并回填，每 5 分钟后台刷新已缓存项；请求不判断缓存年龄。
+`REDIS_CACHE_ENABLED=false` 关闭三类内存缓存，每次请求直接读 Redis，不回填、不合并回源、不启动刷新任务。
+默认 `true`；修改后重启生效。关闭时 Redis 故障直接返回服务异常，没有旧快照兜底；认证与到期检查不变。
+授权缺失、禁用或到期返回 HTTP 403/2004；回源故障或损坏授权返回 HTTP 503/9002。
+状态与业务到期时间每次请求检查。后台临时故障保留旧快照；明确删除或损坏清除旧值，禁用替换为拒绝状态。
+撤销/轮换通常在下一轮同步完成后生效；持续故障时传播延迟无硬上限，不适合立即撤销。
 
 **响应：**
 
@@ -210,26 +219,36 @@ URL 参数和 nonce 不参与当前 JSON 验签；PHONE_AES_KEY 不再读取或�
 | `REDIS_PASSWORD` | Redis 密码 | (空) | 否 |
 | `REDIS_DB` | Redis 数据库 | `0` | 否 |
 | `REDIS_POOL_SIZE` | Redis 连接池大小 | `10` | 否 |
-| `REDIS_TIMEOUT` | 产品映射读取超时，正 Go duration | `1s` | 否 |
+| `REDIS_TIMEOUT` | 配置合并回源及单次 Redis 读取超时，正 Go duration | `1s` | 否 |
+| `REDIS_CACHE_REFRESH_INTERVAL` | 后台同步周期，正 Go duration | `5m` | 否 |
+| `REDIS_CACHE_ENABLED` | 是否使用三类内存缓存，`true` / `false`，重启生效 | `true` | 否 |
+| `REDIS_APIKEY_CACHE_MAX_ENTRIES` | 凭据 LRU 最大条目数，正整数 | `1000` | 否 |
+| `REDIS_PRODUCT_AUTH_CACHE_MAX_ENTRIES` | 授权 LRU 最大条目数，正整数 | `10000` | 否 |
+| `REDIS_PRODUCT_MAP_CACHE_MAX_ENTRIES` | 映射 LRU 最大条目数，正整数 | `1000` | 否 |
+| `REDIS_CACHE_SYNC_CONCURRENCY` | 三类数据共用的回源并发上限，正整数 | `4` | 否 |
 
 ### 产品变量映射
 
-`/loan` 每次请求按 `pcode` 执行 `HGET mongo_map <pcode>`，value 是字段名到 CSV 索引的 JSON。
+开启缓存时，`/loan` 按 `pcode` 读内存，未命中执行 `GET gin-finapi:product-map:v1:<pcode>`；关闭时每次 GET。value 是字段名到 CSV 索引的 JSON。
 Redis 已是业务必需依赖；客户端懒连接，`/health` 不检查 Redis/Mongo。
 仅在独立测试环境人工确认后准备如下映射，应用不自动写入或覆盖配置：
 
 ```text
-HSET mongo_map 10001 '{"var100001":0,"var100002":1,"var100003":2,"var100004":3,"var100005":4,"var100006":5}'
+SET gin-finapi:product-map:v1:10001 '{"var100001":0,"var100002":1,"var100003":2,"var100004":3,"var100005":4,"var100006":5}' NX
 ```
 
-也可在确认目标 Redis 后执行 `go run cmd/init_redis.go` 初始化产品 10001；使用 HSETNX，
+也可在确认目标 Redis 后执行 `go run cmd/init_redis.go` 初始化产品 10001；使用 SET NX，
 不覆盖已有映射。指定其他产品及离线测试见 [初始化工具说明](cmd/README.md)。
+
+旧 Hash 不再自动读取。切换前需对每个有效产品显式运行 `go run cmd/init_redis.go -pcode 10001 -migrate-map`，
+验证目标 KV；迁移保留旧 Hash 和已有目标，支持旧版本回滚。应用不会自动执行迁移。
 
 映射必须为非空 JSON 对象，字段名非空、索引为非负整数；重复字段、null、小数和溢出索引拒绝。
 映射缺失或无效返回 HTTP 200/status 6001/产品异常；Redis 读失败或超时返回 HTTP 503/status 9002。
-不使用硬编码回退或本地缓存。Mongo t/v、gzip/CSV 格式不变，CSV 长度仍必须等于最大映射索引加一。
+不使用硬编码回退。缓存容量默认值仅为初始保护值，不是生产容量结论；MySQL 尚未接入。
+Mongo t/v、gzip/CSV 格式不变，CSV 长度仍必须等于最大映射索引加一。
 `main` 只处理信号和退出码，`bootstrap.Run` 装配并管理运行；启动或服务失败也进入依赖清理。
-正常关闭为 HTTP → Mongo Store → Redis，HTTP/依赖各有独立 5s 预算；HTTP Shutdown 失败时强制 Close。
+正常关闭为 HTTP → 配置缓存 worker/回源 → Mongo Store → Redis，HTTP/依赖各有独立 5s 预算；HTTP Shutdown 失败时强制 Close。
 服务 goroutine 退出等待另设 5s 保护，整个过程不承诺严格 10s 硬上限；需匹配部署终止宽限时间。
 Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除旧 GetMongo/GetClient/包级 Close 入口。
 
@@ -319,4 +338,4 @@ secret 为 1–256 字节，记录最大 4 KiB；拒绝缺失、重复、未知�
 未知、禁用、到期 Key 返回 HTTP 400/status 2001；Redis 故障或记录损坏返回 503/9002。
 服务不自动创建记录，也不回退环境变量。请在部署切换前确认目标 Redis 并迁移旧凭据；
 使用受控工具 SET NX 导入，避免覆盖；配置存储需具备持久化、备份和防淘汰措施。
-本轮未提供或执行写入工具。API Key–产品授权结构已设计，尚未启用校验。
+API Key–产品授权需要在部署前写入 Redis；初始化样例工具可在显式参数授权下写入测试授权，生产授权由受控流程维护。

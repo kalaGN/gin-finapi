@@ -44,9 +44,9 @@ func TestProductMaps_LoadClassifiesFailures(t *testing.T) {
 		{"timeout", "", context.DeadlineExceeded, ErrMappingUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			maps := &ProductMaps{timeout: time.Second, hget: func(ctx context.Context, key, field string) (string, error) {
-				if key != "mongo_map" || field != "10001" {
-					t.Fatalf("HGET %s %s", key, field)
+			maps := &ProductMaps{timeout: time.Second, get: func(ctx context.Context, key string) (string, error) {
+				if key != ProductMapRedisKey(10001) {
+					t.Fatalf("GET %s", key)
 				}
 				if _, ok := ctx.Deadline(); !ok {
 					t.Fatal("missing deadline")
@@ -66,12 +66,12 @@ func TestProductMaps_LoadClassifiesFailures(t *testing.T) {
 
 func TestProductMaps_CancellationAndFreshReads(t *testing.T) {
 	calls := 0
-	maps := &ProductMaps{timeout: time.Second, hget: func(ctx context.Context, _ string, field string) (string, error) {
+	maps := &ProductMaps{timeout: time.Second, get: func(ctx context.Context, key string) (string, error) {
 		calls++
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		if field == "10001" {
+		if key == ProductMapRedisKey(10001) {
 			return `{"a":0}`, nil
 		}
 		return `{"b":1}`, nil
@@ -90,7 +90,7 @@ func TestProductMaps_CancellationAndFreshReads(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 	maps.timeout = time.Nanosecond
-	maps.hget = func(ctx context.Context, _ string, _ string) (string, error) { <-ctx.Done(); return "", ctx.Err() }
+	maps.get = func(ctx context.Context, _ string) (string, error) { <-ctx.Done(); return "", ctx.Err() }
 	if _, err := maps.Load(context.Background(), 10001); !errors.Is(err, ErrMappingUnavailable) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error=%v", err)
 	}

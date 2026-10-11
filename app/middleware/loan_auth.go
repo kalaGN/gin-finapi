@@ -16,6 +16,15 @@ import (
 
 // LoanAuth 单次解析 JSON，校验 API Key 和原始 phone 的签名。
 func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.HandlerFunc {
+	return loanAuth(load, nil)
+}
+
+// LoanAuthWithProduct 在 API Key 签名认证后校验对应 pcode 的授权。
+func LoanAuthWithProduct(load func(context.Context, string) (auth.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
+	return loanAuth(load, loadProduct)
+}
+
+func loanAuth(load func(context.Context, string) (auth.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reject := func(code int, message string) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, request.Response{Status: code, Msg: message})
@@ -88,6 +97,16 @@ func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.H
 		if !utils.VerifySign(params, body.Sign, credential.Secret) {
 			reject(rescode.ErrInvalidSign, rescode.GetCodeMsg(rescode.ErrInvalidSign))
 			return
+		}
+		if loadProduct != nil {
+			if err := loadProduct(c.Request.Context(), body.Apikey, int(body.Pcode.Value)); err != nil {
+				if errors.Is(err, auth.ErrProductDenied) {
+					c.AbortWithStatusJSON(http.StatusForbidden, request.Response{Status: rescode.ErrPermissionDenied, Msg: rescode.GetCodeMsg(rescode.ErrPermissionDenied)})
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
+				return
+			}
 		}
 		request.SetAuthenticated(c, body)
 		c.Next()

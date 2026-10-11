@@ -13,6 +13,7 @@ type AppConfig struct {
 	MongoDB   MongoDBConfig
 	Redis     RedisConfig
 	RateLimit RateLimitConfig
+	Cache     CacheConfig
 }
 
 // RateLimitConfig configures the existing per-process, per-IP limiter.
@@ -60,6 +61,10 @@ var Config *AppConfig
 
 // Load 从环境变量加载配置
 func Load() error {
+	cache, err := loadCacheConfig()
+	if err != nil {
+		return err
+	}
 	redisTimeout, err := time.ParseDuration(getEnvWithDefault("REDIS_TIMEOUT", "1s"))
 	if err != nil || redisTimeout <= 0 {
 		return fmt.Errorf("REDIS_TIMEOUT must be a positive duration")
@@ -97,6 +102,7 @@ func Load() error {
 			Timeout:  redisTimeout,
 		},
 		RateLimit: rateLimit,
+		Cache:     cache,
 	}
 
 	return nil
@@ -156,6 +162,9 @@ func LoadPort() (string, error) {
 
 // Validate 验证配置
 func (c *AppConfig) Validate() error {
+	if err := c.Cache.WithDefaults().Validate(); err != nil {
+		return err
+	}
 	if c.Server.Port == "" {
 		return fmt.Errorf("server port is required")
 	}

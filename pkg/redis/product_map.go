@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
 )
@@ -21,7 +22,7 @@ var (
 
 // ProductMaps 按产品读取变量映射，区分 Redis 故障和产品配置异常。
 type ProductMaps struct {
-	hget    func(context.Context, string, string) (string, error)
+	get     func(context.Context, string) (string, error)
 	close   func() error
 	timeout time.Duration
 }
@@ -34,17 +35,20 @@ func NewProductMaps(cfg config.RedisConfig) (*ProductMaps, error) {
 	}
 
 	return &ProductMaps{
-		hget: func(ctx context.Context, key, field string) (string, error) {
-			return client.HGet(ctx, key, field).Result()
+		get: func(ctx context.Context, key string) (string, error) {
+			return client.Get(ctx, key).Result()
 		}, close: client.Close, timeout: cfg.Timeout,
 	}, nil
 }
 
-// Load 获取 mongo_map 中 pcode 对应的 JSON，不回退或回写默认映射。
+// ProductMapRedisKey 为每个产品生成独立 String Key。
+func ProductMapRedisKey(pcode int) string { return "gin-finapi:product-map:v1:" + strconv.Itoa(pcode) }
+
+// Load 获取产品 JSON，不回退或回写默认映射。
 func (maps *ProductMaps) Load(ctx context.Context, pcode int) (map[string]int, error) {
 	readCtx, cancel := context.WithTimeout(ctx, maps.timeout)
 	defer cancel()
-	raw, err := maps.hget(readCtx, "mongo_map", strconv.Itoa(pcode))
+	raw, err := maps.get(readCtx, ProductMapRedisKey(pcode))
 	if errors.Is(err, driver.Nil) {
 		return nil, ErrProductMapping
 	}
@@ -53,6 +57,27 @@ func (maps *ProductMaps) Load(ctx context.Context, pcode int) (map[string]int, e
 	}
 	return parseProductMap(raw)
 }
+
+// ReadProductMap 将明确缺失与无效记录分别传递给统一读取层。
+func (maps *ProductMaps) ReadProductMap(ctx context.Context, pcode int) (map[string]int, bool, error) {
+	readCtx, cancel := context.WithTimeout(ctx, maps.timeout)
+	defer cancel()
+	raw, err := maps.get(readCtx, ProductMapRedisKey(pcode))
+	if errors.Is(err, driver.Nil) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrMappingUnavailable, err)
+	}
+	value, err := parseProductMap(raw)
+	if err != nil {
+		return nil, false, errors.Join(ErrProductMapping, configdata.ErrInvalidRecord)
+	}
+	return value, true, nil
+}
+
+// ValidateProductMap 供显式迁移工具复用线上格式校验。
+func ValidateProductMap(raw string) error { _, err := parseProductMap(raw); return err }
 
 // Close 释放该读取器持有的连接池，不操作 Redis 数据。
 func (maps *ProductMaps) Close() error {

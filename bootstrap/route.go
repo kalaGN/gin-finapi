@@ -7,6 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
+	"github.com/kalaGN/gin-finapi/app/auth"
+	"github.com/kalaGN/gin-finapi/app/configdata"
 	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/pkg/config"
@@ -32,9 +34,19 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	if err != nil {
 		return nil, nil, errors.Join(err, keys.Close(), maps.Close())
 	}
-	closeDependencies := func(ctx context.Context) error { return errors.Join(store.Close(ctx), keys.Close(), maps.Close()) }
+	reader, err := configdata.New(configdata.Sources{
+		Credentials: []configdata.Source[string, appredis.APIKeyCredential]{keys.ReadCredential},
+		Products:    []configdata.Source[configdata.ProductKey, auth.ProductAccess]{keys.ReadProductAccess},
+		Maps:        []configdata.Source[int, map[string]int]{maps.ReadProductMap},
+	}, cfg.Cache, cfg.Redis.Timeout)
+	if err != nil {
+		return nil, nil, errors.Join(err, store.Close(context.Background()), keys.Close(), maps.Close())
+	}
+	closeDependencies := func(ctx context.Context) error {
+		return errors.Join(reader.Close(ctx), store.Close(ctx), keys.Close(), maps.Close())
+	}
 	query, err := queryloan.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
-		mapping, err := maps.Load(ctx, pcode)
+		mapping, err := reader.LoadProductMap(ctx, pcode)
 		return mapping, queryError(err)
 	}, func(ctx context.Context, phone string, mapping map[string]int) (map[string]int, error) {
 		data, err := store.Query(ctx, phone, mapping)
@@ -48,7 +60,15 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
 	}
 	router := gin.New()
-	SetupRoute(router, handler.Create, middleware.LoanAuth(keys.Load), log, cfg.RateLimit)
+	SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit)
+	reader.Start(func(stats configdata.RefreshStats) {
+		fields := logrus.Fields{"checked": stats.Checked, "failed": stats.Failed, "duration_ms": stats.Duration.Milliseconds()}
+		if stats.Failed > 0 {
+			log.WithFields(fields).Warn("配置缓存刷新部分失败，已按错误分类保留或清除快照")
+		} else {
+			log.WithFields(fields).Debug("配置缓存刷新完成")
+		}
+	})
 	return router, closeDependencies, nil
 }
 
