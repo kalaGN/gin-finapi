@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/airis/app/middleware"
-	"github.com/kalaGN/airis/routes"
+	"github.com/kalaGN/gin-finapi/app/middleware"
+	"github.com/kalaGN/gin-finapi/routes"
 )
 
 // SetupRoute 路由初始化

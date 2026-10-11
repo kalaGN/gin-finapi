@@ -1,5 +1,5 @@
 @echo off
-REM Airis 系统压力测试脚本 (Windows)
+REM Gin FinAPI 系统压力测试脚本 (Windows)
 REM 测试目标: loan 业务接口
 REM 工具: Apache Bench (ab)
 
@@ -14,7 +14,7 @@ set TIMESTAMP=%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2
 set TIMESTAMP=%TIMESTAMP: =0%
 
 echo ======================================
-echo    Airis 系统压力测试
+echo    Gin FinAPI 系统压力测试
 echo ======================================
 echo.
 
@@ -109,7 +109,7 @@ REM 生成汇总报告
 set SUMMARY_FILE=%RESULTS_DIR%\summary_%TIMESTAMP%.txt
 (
 echo ========================================
-echo Airis 压力测试汇总报告
+echo Gin FinAPI 压力测试汇总报告
 echo ========================================
 echo 测试时间: %date% %time%
 echo 目标接口: %BASE_URL%%LOAN_ENDPOINT%

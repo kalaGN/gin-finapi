@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	appmongo "github.com/kalaGN/airis/pkg/mongo"
-	"github.com/kalaGN/airis/pkg/rescode"
-	"github.com/kalaGN/airis/pkg/utils"
+	appmongo "github.com/kalaGN/gin-finapi/pkg/mongo"
+	"github.com/kalaGN/gin-finapi/pkg/rescode"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 const testSecret = "test-secret"

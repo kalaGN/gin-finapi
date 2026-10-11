@@ -9,11 +9,11 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	appconfig "github.com/kalaGN/airis/pkg/config"
-	"github.com/kalaGN/airis/pkg/logger"
-	"github.com/kalaGN/airis/pkg/mongo"
-	"github.com/kalaGN/airis/pkg/rescode"
-	"github.com/kalaGN/airis/pkg/utils"
+	appconfig "github.com/kalaGN/gin-finapi/pkg/config"
+	"github.com/kalaGN/gin-finapi/pkg/logger"
+	"github.com/kalaGN/gin-finapi/pkg/mongo"
+	"github.com/kalaGN/gin-finapi/pkg/rescode"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 type CommonRes struct {

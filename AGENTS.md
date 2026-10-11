@@ -1,8 +1,8 @@
-# Airis AI Coding 入口
+# Gin FinAPI AI Coding 入口
 
 ## 项目定位
 
-Airis 是一个单仓库、单 Go module 的 Gin HTTP 查询服务。当前真实启用的接口为
+Gin FinAPI 是一个单仓库、单 Go module 的 Gin HTTP 查询服务。当前真实启用的接口为
 `GET /health` 和 `POST /loan`；Loan 请求查询 MongoDB 中的 gzip 数据并映射为变量结果。
 仓库中的 Redis、Repository/Model 和 HelloWorld gRPC 代码尚未进入主调用链。
 
@@ -29,7 +29,7 @@ go vet ./...
 go test ./...
 go test -race ./...
 go build ./...
-go build -o /tmp/airis main.go
+go build -o /tmp/gin-finapi main.go
 ```
 
 启动依赖 `.env` 或等价环境变量；不得输出或提交真实密钥、连接串和个人数据。

@@ -13,10 +13,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	"github.com/kalaGN/airis/bootstrap"
-	"github.com/kalaGN/airis/pkg/config"
-	"github.com/kalaGN/airis/pkg/logger"
-	"github.com/kalaGN/airis/pkg/mongo"
+	"github.com/kalaGN/gin-finapi/bootstrap"
+	"github.com/kalaGN/gin-finapi/pkg/config"
+	"github.com/kalaGN/gin-finapi/pkg/logger"
+	"github.com/kalaGN/gin-finapi/pkg/mongo"
 )
 
 func main() {

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Airis 系统压力测试脚本
+# Gin FinAPI 系统压力测试脚本
 # 测试目标: loan 业务接口
 # 工具: Apache Bench (ab)
 
@@ -21,7 +21,7 @@ RESULTS_DIR="./results"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 echo -e "${BLUE}======================================${NC}"
-echo -e "${BLUE}   Airis 系统压力测试${NC}"
+echo -e "${BLUE}   Gin FinAPI 系统压力测试${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
@@ -59,17 +59,17 @@ run_test() {
     local requests=$2
     local concurrency=$3
     local output_file="${RESULTS_DIR}/${test_name}_${TIMESTAMP}.txt"
-    
+
     echo -e "${BLUE}================================${NC}"
     echo -e "${BLUE}测试: ${test_name}${NC}"
     echo -e "${BLUE}请求数: ${requests} | 并发数: ${concurrency}${NC}"
     echo -e "${BLUE}================================${NC}"
-    
+
     ab -n ${requests} -c ${concurrency} \
        -p /tmp/loan_bench_request.json \
        -T application/json \
        ${BASE_URL}${LOAN_ENDPOINT} 2>&1 | tee ${output_file}
-    
+
     echo ""
     echo -e "${GREEN}✓ 测试完成，结果已保存: ${output_file}${NC}"
     echo ""
@@ -104,7 +104,7 @@ echo ""
 SUMMARY_FILE="${RESULTS_DIR}/summary_${TIMESTAMP}.txt"
 cat > ${SUMMARY_FILE} << EOF
 ========================================
-Airis 压力测试汇总报告
+Gin FinAPI 压力测试汇总报告
 ========================================
 测试时间: $(date)
 目标接口: ${BASE_URL}${LOAN_ENDPOINT}

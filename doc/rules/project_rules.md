@@ -1,4 +1,4 @@
-# Airis 项目规则
+# Gin FinAPI 项目规则
 
 本文件是长期强制约束。事实于 2026-09-12 基于 `main` 分支提交 `69cf7e5` 及
 [`核心稳定性修复`](../specs/20260912-核心稳定性修复-需求.md)工作树复核；具体实现变化后必须重新
@@ -55,7 +55,7 @@ go vet ./...
 go test ./...
 go test -race ./...
 go build ./...
-go build -o /tmp/airis main.go
+go build -o /tmp/gin-finapi main.go
 ```
 
 - `go run main.go` 需要 `SECRET_KEY`、`MONGODB_DSN`、`MONGODB_DATABASE`；真实值只通过未跟踪
@@ -64,7 +64,7 @@ go build -o /tmp/airis main.go
 - 当前没有已确认覆盖率门槛或 Lint 工具；不得虚构门槛，也不得把未配置工具设为必跑命令。
 - `go mod verify` 校验下载依赖内容；依赖变更后还需检查 `go.mod`、`go.sum` 的最小 diff。
 - `go build ./...` 用于编译验证，不提交生成的本地二进制。
-- `go build -o /tmp/airis main.go` 验证应用可执行文件打包；仓库没有已确认的发布流水线或目标平台。
+- `go build -o /tmp/gin-finapi main.go` 验证应用可执行文件打包；仓库没有已确认的发布流水线或目标平台。
 - README 记录了 Linux amd64 交叉编译示例，但真实生产平台待确认，不能把该目标当作发布门禁。
 
 ## 3. 当前架构规则

@@ -3,7 +3,7 @@ package redis
 
 import (
 	"context"
-	"github.com/kalaGN/airis/pkg/logger"
+	"github.com/kalaGN/gin-finapi/pkg/logger"
 	"sync"
 	"time"
 

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kalaGN/airis/pkg/config"
+	"github.com/kalaGN/gin-finapi/pkg/config"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )

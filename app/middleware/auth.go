@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/airis/pkg/rescode"
+	"github.com/kalaGN/gin-finapi/pkg/rescode"
 )
 
 // AuthRequired 认证中间件

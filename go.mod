@@ -1,4 +1,4 @@
-module github.com/kalaGN/airis
+module github.com/kalaGN/gin-finapi
 
 go 1.24.0
 

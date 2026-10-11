@@ -3,7 +3,7 @@ package repositories
 import (
 	"context"
 
-	"github.com/kalaGN/airis/app/models"
+	"github.com/kalaGN/gin-finapi/app/models"
 )
 
 // LoanRepository 贷款数据仓库接口

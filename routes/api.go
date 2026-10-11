@@ -13,7 +13,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	loanc "github.com/kalaGN/airis/app/Http/controllers/loan"
+	loanc "github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
 )
 
 // RegisterAPIRoutes 注册网页相关路由

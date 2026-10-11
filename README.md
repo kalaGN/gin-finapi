@@ -1,4 +1,4 @@
-# Airis
+# Gin FinAPI
 
 基于 Gin Web 框架构建的 Go 语言 API 服务项目。
 
@@ -14,7 +14,7 @@
 ## 项目结构
 
 ```
-airis/
+gin-finapi/
 ├── app/
 │   ├── Http/controllers/    # 控制器层
 │   │   └── loan/            # 贷款业务
@@ -110,10 +110,10 @@ go run main.go
 
 ```bash
 # Linux
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o airis main.go
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o gin-finapi main.go
 
 # macOS
-go build -o airis main.go
+go build -o gin-finapi main.go
 ```
 
 ### 4. 测试接口
@@ -220,7 +220,7 @@ api.Use(middleware.AuthRequired())
 
 ```bash
 # 构建镜像
-docker build -t airis:latest .
+docker build -t gin-finapi:latest .
 
 # 运行容器
 docker run -d \
@@ -228,7 +228,7 @@ docker run -d \
   -e SERVER_PORT=8082 \
   -e MONGODB_DSN=mongodb://host:27017 \
   -e MONGODB_DATABASE=mydb \
-  airis:latest
+  gin-finapi:latest
 ```
 
 ## 日志

@@ -1,4 +1,4 @@
-# Airis Rules 索引
+# Gin FinAPI Rules 索引
 
 `doc/rules/` 存放项目长期强制规则和 Spec 管理规范。
 

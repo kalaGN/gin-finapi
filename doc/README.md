@@ -1,4 +1,4 @@
-# Airis 文档与规则索引
+# Gin FinAPI 文档与规则索引
 
 本项目使用 `doc/` 作为文档根目录，并按职责分为 `rules/`、`specs/` 和 `knowledge/`。
 
@@ -16,6 +16,8 @@
 | [`specs/20260912-核心稳定性修复-需求.md`](specs/20260912-核心稳定性修复-需求.md) | Specs / 需求 | SID、Mongo 生命周期、错误治理、数据校验、参数、签名比较和测试修复范围 | 审计问题 3–10 验收与追溯 |
 | [`specs/20260912-核心稳定性修复-设计.md`](specs/20260912-核心稳定性修复-设计.md) | Specs / 设计 | 核心稳定性修复的最小实现和兼容边界 | 审计问题 3–10 实施 |
 | [`specs/20260912-核心稳定性修复-任务.md`](specs/20260912-核心稳定性修复-任务.md) | Specs / 任务 | 核心稳定性修复的测试优先任务与验证门禁 | 审计问题 3–10 实施跟踪 |
+| [`specs/20261011-项目更名-需求.md`](specs/20261011-项目更名-需求.md) | Specs / 需求 | Airis 到 Gin FinAPI 的最小影响迁移范围与兼容边界 | 项目/module 更名 |
+| [`specs/20261011-项目更名-任务.md`](specs/20261011-项目更名-任务.md) | Specs / 任务 | module、活跃文档和构建产物名称迁移步骤 | 项目/module 更名实施 |
 | [`knowledge/`](knowledge/README.md) | Knowledge 索引 | 已确认知识、审计、性能数据和历史决策 | 排障、架构、性能、历史背景 |
 | [`knowledge/project_analysis.md`](knowledge/project_analysis.md) | Knowledge / 审计 | 当前仓库事实、风险、证据和待确认项 | 规划整改、Code Review |
 | [`knowledge/performance_test_report.md`](knowledge/performance_test_report.md) | Knowledge | 2025-11-15 本地 Apache Bench 历史结果 | 性能变更前的历史参考 |
