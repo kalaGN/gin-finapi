@@ -156,7 +156,7 @@ func TestLoanIntegration(t *testing.T) {
 			// Repeating the same nonce is allowed by the current contract; it is not replay protection.
 			for attempt := 0; attempt < 2; attempt++ {
 				body := map[string]interface{}{"phone": phone, "pcode": pcode, "apikey": apiKey, "nonce": "0001", "timestamp": time.Now().UnixMilli()}
-				body["sign"] = utils.GenerateSign(body, "integration-test-secret")
+				body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "integration-test-secret")
 				raw, err := json.Marshal(body)
 				if err != nil {
 					t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
@@ -26,7 +27,7 @@ func TestLoanAuthWithProduct_RejectsBeforeAuthorization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
-			body["sign"] = utils.GenerateSign(body, "secret")
+			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
 			tc.mutate(body)
 			data, err := json.Marshal(body)
 			if err != nil {
@@ -51,5 +52,39 @@ func TestLoanAuthWithProduct_RejectsBeforeAuthorization(t *testing.T) {
 				t.Fatalf("HTTP=%d code=%d", w.Code, result.Status)
 			}
 		})
+	}
+}
+
+// 产品不参与签名，但修改后的产品仍必须通过授权检查。
+func TestLoanAuthWithProduct_UnsignedProductStillRequiresAuthorization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
+	body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
+	body["pcode"] = 10002
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	router := gin.New()
+	router.POST("/loan", LoanAuthWithProduct(testKeyReader("key", "secret"), func(_ context.Context, key string, pcode int) error {
+		called = true
+		if key != "key" || pcode != 10002 {
+			t.Fatal("产品授权未使用当前请求参数")
+		}
+		return auth.ErrProductDenied
+	}), func(*gin.Context) { t.Error("未授权请求进入 Handler") })
+	req := httptest.NewRequest("POST", "/loan", bytes.NewReader(data))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	var result struct {
+		Status int `json:"status"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !called || w.Code != 403 || result.Status != 2004 {
+		t.Fatalf("授权调用=%v HTTP=%d 业务码=%d", called, w.Code, result.Status)
 	}
 }

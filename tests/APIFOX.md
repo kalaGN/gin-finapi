@@ -21,10 +21,11 @@ SHA256转换待接入、缺少phone、null/数字phone、字符串/越界pcode�
 产品映射缺失、产品映射JSON无效、Redis不可用。
 每个用例包含确定的HTTP和业务码断言；成功用例检查SID与六个变量。
 
-当前签名包含 apikey、nonce、pcode、phone、timestamp，按key排序形成
-apikey=...&nonce=...&pcode=...&phone=...&timestamp=...&key=<对应凭据secret>，再MD5并转大写。
+当前签名包含 apikey、nonce、timestamp，按key排序形成
+apikey=...&nonce=...&timestamp=...&key=<对应凭据secret>，再MD5并转大写。
+pcode、phone 不参与验签，仍需要满足参数校验和产品授权。
 nonce 是必填非空字符串，参与签名，URL query 不参与。使用原始完整 phone，不能先截断再签名。
-前置脚本已同步纳入 nonce；旧四字段签名不再接受，未增加 Redis nonce 去重。
+前置脚本已同步纳入 nonce；旧四字段或五字段签名不再接受，未增加 Redis nonce 去重。
 旧样例的20位形态和nonce已保留，标识替换为合成数据，避免持久保存真实请求信息。
 
 ## Fixture（仅独立测试库）

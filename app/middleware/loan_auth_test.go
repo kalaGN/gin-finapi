@@ -33,7 +33,7 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 		{"missing key", func(b map[string]interface{}) { delete(b, "apikey") }, rescode.ErrInvalidApikey},
 		{"wrong key valid signature", func(b map[string]interface{}) {
 			b["apikey"] = "unknown-key"
-			b["sign"] = utils.GenerateSign(b, "secret")
+			b["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": b["apikey"], "nonce": b["nonce"], "timestamp": b["timestamp"]}, "secret")
 		}, rescode.ErrInvalidApikey},
 		{"missing timestamp", func(b map[string]interface{}) { delete(b, "timestamp") }, rescode.ErrInvalidTimestamp},
 		{"expired", func(b map[string]interface{}) { b["timestamp"] = time.Now().Add(-10 * time.Minute).UnixMilli() }, rescode.ErrInvalidTimestamp},
@@ -44,7 +44,7 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := map[string]interface{}{"phone": "ciphertext", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-			b["sign"] = utils.GenerateSign(b, "secret")
+			b["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": b["apikey"], "nonce": b["nonce"], "timestamp": b["timestamp"]}, "secret")
 			tt.mutate(b)
 			data, _ := json.Marshal(b)
 			r := gin.New()
@@ -105,7 +105,7 @@ func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
 func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-	body["sign"] = utils.GenerateSign(body, "secret")
+	body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
 	data, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	valid := map[string]interface{}{"phone": "ciphertext", "pcode": 99999, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-	valid["sign"] = utils.GenerateSign(valid, "secret")
+	valid["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": valid["apikey"], "nonce": valid["nonce"], "timestamp": valid["timestamp"]}, "secret")
 	data, _ := json.Marshal(valid)
 	for _, tt := range []struct {
 		name, body, contentType, key, secret string
@@ -218,7 +218,7 @@ func TestLoanAuth_RedisCredentials(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": tc.key, "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-			body["sign"] = utils.GenerateSign(body, tc.signSecret)
+			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, tc.signSecret)
 			data, _ := json.Marshal(body)
 			called := false
 			router := gin.New()
@@ -257,10 +257,22 @@ func TestLoanAuth_NonceSignatureContract(t *testing.T) {
 		http, code int
 	}{
 		{"valid", nil, 204, 0},
-		{"leading zeros", func(b map[string]interface{}) { b["nonce"] = "003093"; b["sign"] = utils.GenerateSign(b, "secret") }, 204, 0},
+		{"phone excluded", func(b map[string]interface{}) { b["phone"] = "another-identifier" }, 204, 0},
+		{"pcode excluded", func(b map[string]interface{}) { b["pcode"] = 10002 }, 204, 0},
+		{"previous five field signature", func(b map[string]interface{}) { b["sign"] = utils.GenerateSign(b, "secret") }, 400, 2002},
+		{"leading zeros", func(b map[string]interface{}) {
+			b["nonce"] = "003093"
+			b["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": b["apikey"], "nonce": b["nonce"], "timestamp": b["timestamp"]}, "secret")
+		}, 204, 0},
 		{"lowercase sign", func(b map[string]interface{}) { b["sign"] = strings.ToLower(b["sign"].(string)) }, 204, 0},
-		{"missing", func(b map[string]interface{}) { delete(b, "nonce"); b["sign"] = utils.GenerateSign(b, "secret") }, 400, 1001},
-		{"empty", func(b map[string]interface{}) { b["nonce"] = ""; b["sign"] = utils.GenerateSign(b, "secret") }, 400, 1001},
+		{"missing", func(b map[string]interface{}) {
+			delete(b, "nonce")
+			b["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": b["apikey"], "nonce": b["nonce"], "timestamp": b["timestamp"]}, "secret")
+		}, 400, 1001},
+		{"empty", func(b map[string]interface{}) {
+			b["nonce"] = ""
+			b["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": b["apikey"], "nonce": b["nonce"], "timestamp": b["timestamp"]}, "secret")
+		}, 400, 1001},
 		{"null", func(b map[string]interface{}) { b["nonce"] = nil }, 400, 1000},
 		{"number", func(b map[string]interface{}) { b["nonce"] = 3093 }, 400, 1000},
 		{"boolean", func(b map[string]interface{}) { b["nonce"] = true }, 400, 1000},
@@ -278,7 +290,7 @@ func TestLoanAuth_NonceSignatureContract(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-			body["sign"] = utils.GenerateSign(body, "secret")
+			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
 			if tc.mutate != nil {
 				tc.mutate(body)
 			}

@@ -82,7 +82,7 @@ main.go
   → Recovery → CORS → Logger → 进程内 IP 限流
   → GET /health
   → POST /loan
-      → LoanAuth 单次 JSON/字段/API Key/时间戳/原值签名校验
+      → LoanAuth 单次 JSON/字段/API Key/时间戳/认证字段签名校验
       → LoanHandler 归一化查询标识 → app/loan 查询用例
       → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
       → mongo.Store.Query（实例配置）
@@ -135,15 +135,16 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 
 - `/loan` 的 `pcode` 只接受 JSON 整数且范围为 10001–99999；`timestamp` 只接受 JSON 整数，
   使用毫秒并限制为过去 5 分钟内。字符串、小数、指数形式和整数溢出值均拒绝。
-- phone 是非空字符串，签名使用原始完整值；32 位十六进制 MD5 截前 20 位查 t，保留大小写。
+- phone 是非空字符串，不参与签名；32 位十六进制 MD5 截前 20 位查 t，保留大小写。
   SHA-256（64 位十六进制）需后续服务映射为原手机号 MD5，目前 TODO，返回 503/9002，不直接查询。
   既有 20 位及其他历史非空标识保持原值兼容，不解密或对摘要重新哈希。
 - /loan 认证中间件通过 JSON apikey 的 SHA-256 摘要读取 Redis String 凭据并验证启停和到期，Body 上限 64 KiB，只解析一次。
 - 签名验证后，经统一读取层按 API Key+pcode 检查产品授权；未命中读 Redis，每 5 分钟后台刷新，不检查缓存年龄；逐次检查业务到期。
-- 签名当前把 `apikey`、`nonce`、`pcode`、原始 `phone`、`timestamp` 按 key 排序拼接，加对应凭据 `secret` 后计算
+- 签名当前把 `apikey`、`nonce`、`timestamp` 按 key 排序拼接，加对应凭据 `secret` 后计算
   大写 MD5。该算法存在安全/演进风险，但在确认客户端兼容前不得擅自替换。
+  pcode、phone 不参与验签，仍必须校验参数及产品授权；签名不保护业务字段完整性。
 - nonce 必须为非空 JSON 字符串，原值签名、保留前导零；缺失/空串为 400/1001，类型错误为 400/1000。
-  不接受旧四字段签名；URL Query 不替代 Body。不因参与签名就宣称已实现 nonce 防重放去重。
+  不接受旧四字段或五字段签名；URL Query 不替代 Body。不因参与签名就宣称已实现 nonce 防重放去重。
 - 成功数据字段由产品 String KV 的映射决定；既有六变量示例仍可配置。变更映射须核对 CSV 列序和客户端兼容。
 - 产品映射缺失或无效为 200/6001；Redis 不可用（包括读取超时）为 503/9002，不回退或误报未查得。
 - 当前没有分页、版本前缀、废弃策略或幂等键约定；标记“待确认”，不能自行创建。

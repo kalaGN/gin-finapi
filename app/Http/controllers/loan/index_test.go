@@ -30,7 +30,7 @@ func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
 		phone := tt.phone
 		t.Run(phone, func(t *testing.T) {
 			body := map[string]interface{}{"phone": phone, "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-			body["sign"] = utils.GenerateSign(body, testSecret)
+			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, testSecret)
 			data, err := json.Marshal(body)
 			if err != nil {
 				t.Fatal(err)
@@ -55,7 +55,7 @@ func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
 
 func TestLoanHandler_SHA256WaitsForConversionService(t *testing.T) {
 	body := map[string]interface{}{"phone": strings.Repeat("b", 64), "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-	body["sign"] = utils.GenerateSign(body, testSecret)
+	body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, testSecret)
 	data, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func validRequestBody(t *testing.T) string {
 		"pcode":  params["pcode"],
 		"apikey": params["apikey"],
 		"nonce":  "3093", "timestamp": timestamp,
-		"sign": utils.GenerateSign(params, testSecret),
+		"sign": utils.GenerateSign(map[string]interface{}{"apikey": params["apikey"], "nonce": params["nonce"], "timestamp": params["timestamp"]}, testSecret),
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

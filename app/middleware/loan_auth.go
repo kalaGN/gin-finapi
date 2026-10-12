@@ -14,7 +14,7 @@ import (
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
-// LoanAuth 单次解析 JSON，校验 API Key 和原始 phone 的签名。
+// LoanAuth 单次解析 JSON，校验 API Key、nonce 和 timestamp 的签名。
 func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.HandlerFunc {
 	return loanAuth(load, nil)
 }
@@ -99,7 +99,6 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 			return
 		}
 		params := map[string]interface{}{
-			"phone": body.Phone.Value, "pcode": int(body.Pcode.Value),
 			"apikey": body.Apikey, "timestamp": body.Timestamp.Value,
 			"nonce": body.Nonce.Value,
 		}

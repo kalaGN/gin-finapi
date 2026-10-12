@@ -102,8 +102,8 @@ func TestVerifySign(t *testing.T) {
 
 // 固定向量由独立 MD5 实现计算，覆盖客户端原文顺序、前导零和大写输出。
 func TestGenerateSignMatchesNonceClientVector(t *testing.T) {
-	params := map[string]interface{}{"phone": "test-phone", "timestamp": int64(1791688734850), "nonce": "003093", "pcode": 10001, "apikey": "test-key"}
-	const want = "99DB4F742949A6FF80DB71E712131F63"
+	params := map[string]interface{}{"timestamp": int64(1791688734850), "nonce": "003093", "apikey": "test-key"}
+	const want = "EF495B2BE79CC09C7FCFE59B726C6C53"
 	if got := GenerateSign(params, "test-secret"); got != want {
 		t.Fatalf("sign=%s want=%s", got, want)
 	}

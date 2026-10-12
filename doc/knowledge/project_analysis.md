@@ -4,8 +4,8 @@
 
 > 初次分析：2026-08-03；本轮统一缓存、产品 KV 和生命周期复核：2026-10-12
 
-2026-10-12 nonce 签名更新：JSON nonce 必填且为非空字符串，参与 apikey/nonce/pcode/phone/timestamp
-排序 MD5；旧四字段签名不再接受，不增加防重放去重。当前凭据来自 Redis，非历史章节所述的 SECRET_KEY。
+2026-10-12 nonce 签名更新：JSON nonce 必填且为非空字符串，参与 apikey/nonce/timestamp
+排序 MD5；旧四字段或五字段签名不再接受，不增加防重放去重。当前凭据来自 Redis，非历史章节所述的 SECRET_KEY。
 具体契约及验证见 [nonce 签名设计](../specs/20261012-nonce签名-设计.md)。
 > 分析分支：`main`
 > 历史审计基线：`85e21d3`。2026-10-11 已复核 phone 原值查询、Mongo 同包拆分及 Redis 产品映射；其他历史审计未全量复核。
@@ -78,7 +78,7 @@ Go 版本以 `go.mod` 的 1.24.0、toolchain 1.24.10 为准；旧 README 的“G
 ```text
 POST /loan
   → Gin 全局中间件
-  → LoanAuth：单次 JSON/类型/配置 API Key/时间戳/原值签名校验
+  → LoanAuth：单次 JSON/类型/配置 API Key/时间戳/认证字段签名校验
   → 注入式 LoanHandler：MD5 截前 20 位，旧查询标识兼容
   → app/configdata 内存优先，未命中 GET 产品 KV：加载 JSON 变量映射
   → MongoDB 按 phone 查询字段 t

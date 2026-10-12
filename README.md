@@ -166,14 +166,15 @@ Content-Type: application/json
 phone 是非空字符串：完整 32 位十六进制 MD5 截前 20 位查 Mongo t，保留大小写；
 既有 20 位查询标识继续原样查询。64 位十六进制 SHA-256 的转换服务尚未接入（TODO），
 当前返回 HTTP 503 + 9002，不直接查库或对摘要再哈希。其他历史非空值沿用原值兼容。
-签名对 apikey、nonce、pcode、原始 phone、timestamp 按 key 排序拼接，加该 API Key 对应的 secret 后做大写 MD5：
+签名对 apikey、nonce、timestamp 按 key 排序拼接，加该 API Key 对应的 secret 后做大写 MD5：
 
 ```text
-apikey=...&nonce=...&pcode=...&phone=...&timestamp=...&key=<secret>
+apikey=...&nonce=...&timestamp=...&key=<secret>
 ```
 
 nonce 必须是非空 JSON 字符串，保留前导零，不转成数字；缺失/空串为 400/1001，类型错误为 400/1000。
-不接受旧四字段签名，客户端须同步更新；本次未增加 nonce 去重，仍不能阻止窗口内的重复请求。
+不接受旧四字段或五字段签名，客户端须同步更新；本次未增加 nonce 去重，仍不能阻止窗口内的重复请求。
+pcode、phone 不参与签名，但仍校验业务参数和产品授权；签名不保护这两个字段的完整性。
 请求 apikey 必须对应 Redis 中启用且未到期的凭据，且对请求 pcode 有启用授权；timestamp 为过去五分钟内的 Unix 毫秒。
 上面的 timestamp 和 sign 只是结构示意，联调时需要实时生成。
 [设计与请求示例](doc/specs/20261011-请求加密鉴权-设计.md)。

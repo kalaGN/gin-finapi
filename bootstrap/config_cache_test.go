@@ -75,7 +75,7 @@ func TestLoanWithConfigCache(t *testing.T) {
 			send := func() (*httptest.ResponseRecorder, request.Response) {
 				t.Helper()
 				body := map[string]interface{}{"phone": "0123456789abcdef0123456789abcdef", "pcode": 10001, "apikey": "test-key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
-				body["sign"] = utils.GenerateSign(body, "test-secret")
+				body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "test-secret")
 				data, _ := json.Marshal(body)
 				req := httptest.NewRequest(http.MethodPost, "/loan", strings.NewReader(string(data)))
 				req.Header.Set("Content-Type", "application/json")
