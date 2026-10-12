@@ -7,7 +7,7 @@
 
 ## 当前实现与问题
 
-事实来源：`app/middleware/loan_auth.go`、`pkg/config/app_config.go`、
+事实来源：`app/middleware/loan_auth.go`、`pkg/config/config.go`、
 `pkg/redis/product_map.go`、`routes/api.go`、`pkg/rescode/rescode.go`。
 
 变更前 LoanAuth 使用配置 API_KEY 比对请求体 apikey，再使用全局 SECRET_KEY 验签；
