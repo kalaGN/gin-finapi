@@ -202,8 +202,8 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 
 - 使用 Go 标准 `testing`；测试覆盖 `pkg/utils`、`pkg/rescode`、Mongo、Loan Controller、路由、
   中间件、主程序关闭编排和 HelloWorld Proto 包。
-- Redis 产品映射已有离线解析、读取分类和 HTTP 编排测试；真实 Redis/Mongo 集成仍未验证。
-- 没有真实覆盖率门槛、集成测试环境或 E2E 门禁。
+- Redis 产品映射已有离线解析、读取分类和 HTTP 编排测试；真实 Redis/Mongo 回归见 [`集成测试说明`](../../tests/integration/README.md)，使用独立临时容器。
+- 没有真实覆盖率门槛或 E2E CI 门禁；集成测试通过显式脚本运行，不进入默认离线测试。
 
 ### 测试层级
 

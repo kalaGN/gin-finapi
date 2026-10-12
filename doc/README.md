@@ -35,6 +35,8 @@
 
 ## 渐进加载规则
 
+Redis/Mongo 集成回归：[独立容器测试说明](../tests/integration/README.md)。
+
 接口回归资产：[Apifox 导入与执行说明](../tests/APIFOX.md)，包含 Postman v2.1 用例及无密钥环境模板。
 
 1. 先读 `AGENTS.md` 和本索引。
