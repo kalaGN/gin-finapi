@@ -99,3 +99,19 @@ func TestVerifySign(t *testing.T) {
 		t.Error("Lowercase valid sign should pass verification")
 	}
 }
+
+// 固定向量由独立 MD5 实现计算，覆盖客户端原文顺序、前导零和大写输出。
+func TestGenerateSignMatchesNonceClientVector(t *testing.T) {
+	params := map[string]interface{}{"phone": "test-phone", "timestamp": int64(1791688734850), "nonce": "003093", "pcode": 10001, "apikey": "test-key"}
+	const want = "99DB4F742949A6FF80DB71E712131F63"
+	if got := GenerateSign(params, "test-secret"); got != want {
+		t.Fatalf("sign=%s want=%s", got, want)
+	}
+	if !VerifySign(params, want, "test-secret") {
+		t.Fatal("client vector rejected")
+	}
+	params["nonce"] = "3093"
+	if VerifySign(params, want, "test-secret") {
+		t.Fatal("nonce leading zeros ignored")
+	}
+}

@@ -43,7 +43,7 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := map[string]interface{}{"phone": "ciphertext", "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+			b := map[string]interface{}{"phone": "ciphertext", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			b["sign"] = utils.GenerateSign(b, "secret")
 			tt.mutate(b)
 			data, _ := json.Marshal(b)
@@ -79,7 +79,7 @@ func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
 		{"invalid key", "apikey", "unknown-key", 2001, "apikey无效"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli(), "sign": "test-sign"}
+			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli(), "sign": "test-sign"}
 			body[tc.field] = tc.value
 			data, err := json.Marshal(body)
 			if err != nil {
@@ -104,7 +104,7 @@ func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
 
 func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+	body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 	body["sign"] = utils.GenerateSign(body, "secret")
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -140,7 +140,7 @@ func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 
 func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	valid := map[string]interface{}{"phone": "ciphertext", "pcode": 99999, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+	valid := map[string]interface{}{"phone": "ciphertext", "pcode": 99999, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 	valid["sign"] = utils.GenerateSign(valid, "secret")
 	data, _ := json.Marshal(valid)
 	for _, tt := range []struct {
@@ -217,7 +217,7 @@ func TestLoanAuth_RedisCredentials(t *testing.T) {
 		{"unavailable", "key-a", "secret-a", appredis.ErrAuthUnavailable, 503, 9002},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": tc.key, "timestamp": time.Now().UnixMilli()}
+			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": tc.key, "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(body, tc.signSecret)
 			data, _ := json.Marshal(body)
 			called := false
@@ -243,6 +243,66 @@ func TestLoanAuth_RedisCredentials(t *testing.T) {
 				}
 				if result.Status != tc.wantCode {
 					t.Fatal("incorrect business code")
+				}
+			}
+		})
+	}
+}
+
+func TestLoanAuth_NonceSignatureContract(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		mutate     func(map[string]interface{})
+		http, code int
+	}{
+		{"valid", nil, 204, 0},
+		{"leading zeros", func(b map[string]interface{}) { b["nonce"] = "003093"; b["sign"] = utils.GenerateSign(b, "secret") }, 204, 0},
+		{"lowercase sign", func(b map[string]interface{}) { b["sign"] = strings.ToLower(b["sign"].(string)) }, 204, 0},
+		{"missing", func(b map[string]interface{}) { delete(b, "nonce"); b["sign"] = utils.GenerateSign(b, "secret") }, 400, 1001},
+		{"empty", func(b map[string]interface{}) { b["nonce"] = ""; b["sign"] = utils.GenerateSign(b, "secret") }, 400, 1001},
+		{"null", func(b map[string]interface{}) { b["nonce"] = nil }, 400, 1000},
+		{"number", func(b map[string]interface{}) { b["nonce"] = 3093 }, 400, 1000},
+		{"boolean", func(b map[string]interface{}) { b["nonce"] = true }, 400, 1000},
+		{"object", func(b map[string]interface{}) { b["nonce"] = map[string]string{"a": "b"} }, 400, 1000},
+		{"tampered", func(b map[string]interface{}) { b["nonce"] = "3094" }, 400, 2002},
+		{"legacy signature", func(b map[string]interface{}) {
+			params := map[string]interface{}{}
+			for key, value := range b {
+				if key != "nonce" {
+					params[key] = value
+				}
+			}
+			b["sign"] = utils.GenerateSign(params, "secret")
+		}, 400, 2002},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
+			body["sign"] = utils.GenerateSign(body, "secret")
+			if tc.mutate != nil {
+				tc.mutate(body)
+			}
+			data, _ := json.Marshal(body)
+			router := gin.New()
+			router.POST("/loan", LoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) {
+				_, ok := request.Authenticated(c)
+				if !ok {
+					t.Fatal("missing authenticated request")
+				}
+				c.Status(204)
+			})
+			req := httptest.NewRequest("POST", "/loan?nonce=3093", bytes.NewReader(data))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != tc.http {
+				t.Fatalf("HTTP=%d body=%s", w.Code, w.Body)
+			}
+			if tc.code != 0 {
+				var response request.Response
+				_ = json.Unmarshal(w.Body.Bytes(), &response)
+				if response.Status != tc.code {
+					t.Fatalf("status=%d want=%d", response.Status, tc.code)
 				}
 			}
 		})

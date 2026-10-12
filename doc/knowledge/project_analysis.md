@@ -3,6 +3,10 @@
 > 2026-10-12：已删除无引用的 `app/repositories/loan_repository.go`；下文 Repository 存在性描述为历史记录，模型保留。
 
 > 初次分析：2026-08-03；本轮统一缓存、产品 KV 和生命周期复核：2026-10-12
+
+2026-10-12 nonce 签名更新：JSON nonce 必填且为非空字符串，参与 apikey/nonce/pcode/phone/timestamp
+排序 MD5；旧四字段签名不再接受，不增加防重放去重。当前凭据来自 Redis，非历史章节所述的 SECRET_KEY。
+具体契约及验证见 [nonce 签名设计](../specs/20261012-nonce签名-设计.md)。
 > 分析分支：`main`
 > 历史审计基线：`85e21d3`。2026-10-11 已复核 phone 原值查询、Mongo 同包拆分及 Redis 产品映射；其他历史审计未全量复核。
 

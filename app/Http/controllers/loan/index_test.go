@@ -29,7 +29,7 @@ func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
 	} {
 		phone := tt.phone
 		t.Run(phone, func(t *testing.T) {
-			body := map[string]interface{}{"phone": phone, "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+			body := map[string]interface{}{"phone": phone, "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(body, testSecret)
 			data, err := json.Marshal(body)
 			if err != nil {
@@ -54,7 +54,7 @@ func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
 }
 
 func TestLoanHandler_SHA256WaitsForConversionService(t *testing.T) {
-	body := map[string]interface{}{"phone": strings.Repeat("b", 64), "pcode": 10001, "apikey": "key", "timestamp": time.Now().UnixMilli()}
+	body := map[string]interface{}{"phone": strings.Repeat("b", 64), "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 	body["sign"] = utils.GenerateSign(body, testSecret)
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -82,14 +82,14 @@ func TestCreate_RejectsNonIntegerNumbers(t *testing.T) {
 		body       string
 		wantStatus int
 	}{
-		{"decimal pcode", `{"phone":"phone","pcode":10001.5,"apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"string pcode", `{"phone":"phone","pcode":"10001","apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"exponent pcode", `{"phone":"phone","pcode":1e4,"apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"overflow pcode", `{"phone":"phone","pcode":9223372036854775808,"apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"out of range pcode", `{"phone":"phone","pcode":100000,"apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"decimal timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","timestamp":1.5,"sign":"x"}`, rescode.ErrInvalidTimestamp},
-		{"string timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","timestamp":"1","sign":"x"}`, rescode.ErrInvalidTimestamp},
-		{"overflow timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","timestamp":9223372036854775808,"sign":"x"}`, rescode.ErrInvalidTimestamp},
+		{"decimal pcode", `{"phone":"phone","pcode":10001.5,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"string pcode", `{"phone":"phone","pcode":"10001","apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"exponent pcode", `{"phone":"phone","pcode":1e4,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"overflow pcode", `{"phone":"phone","pcode":9223372036854775808,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"out of range pcode", `{"phone":"phone","pcode":100000,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"decimal timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":1.5,"sign":"x"}`, rescode.ErrInvalidTimestamp},
+		{"string timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":"1","sign":"x"}`, rescode.ErrInvalidTimestamp},
+		{"overflow timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":9223372036854775808,"sign":"x"}`, rescode.ErrInvalidTimestamp},
 	}
 
 	for _, tt := range tests {
@@ -110,7 +110,7 @@ func TestCreate_RejectsNonIntegerNumbers(t *testing.T) {
 
 func TestCreate_RejectsNonStringPhoneWithFieldError(t *testing.T) {
 	timestamp := time.Now().UnixMilli()
-	body := `{"phone":13800138000,"pcode":10001,"apikey":"key","timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`
+	body := `{"phone":13800138000,"pcode":10001,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`
 	query := func(context.Context, string, int) (map[string]int, error) {
 		t.Fatal("query called for invalid phone")
 		return nil, nil
@@ -222,17 +222,17 @@ func validRequestBody(t *testing.T) string {
 	t.Helper()
 	timestamp := time.Now().UnixMilli()
 	params := map[string]interface{}{
-		"phone":     "phone",
-		"pcode":     10001,
-		"apikey":    "key",
-		"timestamp": timestamp,
+		"phone":  "phone",
+		"pcode":  10001,
+		"apikey": "key",
+		"nonce":  "3093", "timestamp": timestamp,
 	}
 	body := map[string]interface{}{
-		"phone":     params["phone"],
-		"pcode":     params["pcode"],
-		"apikey":    params["apikey"],
-		"timestamp": timestamp,
-		"sign":      utils.GenerateSign(params, testSecret),
+		"phone":  params["phone"],
+		"pcode":  params["pcode"],
+		"apikey": params["apikey"],
+		"nonce":  "3093", "timestamp": timestamp,
+		"sign": utils.GenerateSign(params, testSecret),
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

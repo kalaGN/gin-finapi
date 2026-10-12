@@ -100,6 +100,8 @@ const (
 	MsgPcodeMustBeNumber     = "pcode must be a number"
 	MsgTimestampMustBeNumber = "timestamp must be a number"
 	MsgSignRequired          = "sign is required"
+	MsgNonceRequired         = "nonce is required"
+	MsgNonceMustBeString     = "nonce must be a string"
 )
 
 // ==================== 错误消息映射 ====================

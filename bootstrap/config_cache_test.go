@@ -74,7 +74,7 @@ func TestLoanWithConfigCache(t *testing.T) {
 			routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess))
 			send := func() (*httptest.ResponseRecorder, request.Response) {
 				t.Helper()
-				body := map[string]interface{}{"phone": "0123456789abcdef0123456789abcdef", "pcode": 10001, "apikey": "test-key", "timestamp": time.Now().UnixMilli()}
+				body := map[string]interface{}{"phone": "0123456789abcdef0123456789abcdef", "pcode": 10001, "apikey": "test-key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 				body["sign"] = utils.GenerateSign(body, "test-secret")
 				data, _ := json.Marshal(body)
 				req := httptest.NewRequest(http.MethodPost, "/loan", strings.NewReader(string(data)))

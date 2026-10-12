@@ -6,6 +6,7 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`specs/20261012-nonce签名-设计.md`](specs/20261012-nonce签名-设计.md) | Specs / 设计 | nonce 纳入客户端签名、兼容与验证 | 签名、nonce 参数校验 |
 | [`specs/20261011-Redis内存缓存-设计.md`](specs/20261011-Redis内存缓存-设计.md) | Specs / 设计 | 统一读取、五分钟刷新及产品 KV 迁移，已实施 | 凭据、授权、映射缓存与迁移 |
 | [`specs/20261011-架构边界优化-设计.md`](specs/20261011-架构边界优化-设计.md) | Specs / 设计 | P1/P2 架构边界优化，已实施 | 生命周期、实例配置、业务与存储边界、CLI 门禁 |
 | [`specs/20261011-APIKey Redis存储-设计.md`](specs/20261011-APIKey%20Redis存储-设计.md) | Specs / 设计 | Redis API Key 凭据、pcode 授权及授权缓存已实施 | 认证与产品授权 |

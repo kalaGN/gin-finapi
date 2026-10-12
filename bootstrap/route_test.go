@@ -46,7 +46,7 @@ func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := map[string]interface{}{
 				"phone": strings.Repeat("b", 64), "pcode": 10001,
-				"apikey": tc.key, "timestamp": time.Now().UnixMilli(),
+				"apikey": tc.key, "nonce": "3093", "timestamp": time.Now().UnixMilli(),
 			}
 			body["sign"] = utils.GenerateSign(body, "test-secret")
 			data, err := json.Marshal(body)

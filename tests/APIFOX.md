@@ -21,16 +21,17 @@ SHA256转换待接入、缺少phone、null/数字phone、字符串/越界pcode�
 产品映射缺失、产品映射JSON无效、Redis不可用。
 每个用例包含确定的HTTP和业务码断言；成功用例检查SID与六个变量。
 
-当前签名只包含 apikey、pcode、phone、timestamp，按key排序形成
-apikey=...&pcode=...&phone=...&timestamp=...&key=<对应凭据secret>，再MD5并转大写。
-nonce和URL query不参与签名。使用请求原始完整phone，不能先截断再签名。
+当前签名包含 apikey、nonce、pcode、phone、timestamp，按key排序形成
+apikey=...&nonce=...&pcode=...&phone=...&timestamp=...&key=<对应凭据secret>，再MD5并转大写。
+nonce 是必填非空字符串，参与签名，URL query 不参与。使用原始完整 phone，不能先截断再签名。
+前置脚本已同步纳入 nonce；旧四字段签名不再接受，未增加 Redis nonce 去重。
 旧样例的20位形态和nonce已保留，标识替换为合成数据，避免持久保存真实请求信息。
 
 ## Fixture（仅独立测试库）
 这些文件不写入 Redis 或 Mongo；需要人工准备：
 
 全部需要 Mongo 的用例（含未查得、损坏 gzip、Mongo 不可用）先在独立测试 Redis 配置
-`mongo_map` Hash 的 `10001` 字段为以下 JSON，确保 Redis 正常可访问：
+String Key `gin-finapi:product-map:v1:10001` 为以下 JSON，确保 Redis 正常可访问：
 
 ```json
 {"var100001":0,"var100002":1,"var100003":2,"var100004":3,"var100005":4,"var100006":5}

@@ -69,7 +69,7 @@ func TestLoanQuery_UsesProductMapThroughAuthenticatedRoute(t *testing.T) {
 			}
 			router := gin.New()
 			routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuth(testKeyReader("test-key", "test-secret")))
-			body := map[string]interface{}{"phone": "0123456789abcdef0123456789abcdef", "pcode": tc.pcode, "apikey": "test-key", "timestamp": time.Now().UnixMilli()}
+			body := map[string]interface{}{"phone": "0123456789abcdef0123456789abcdef", "pcode": tc.pcode, "apikey": "test-key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(body, "test-secret")
 			data, err := json.Marshal(body)
 			if err != nil {

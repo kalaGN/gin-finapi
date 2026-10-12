@@ -65,6 +65,14 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 			reject(rescode.ErrInvalidApikey, rescode.GetCodeMsg(rescode.ErrInvalidApikey))
 			return
 		}
+		if body.Nonce.Set && body.Nonce.Err != nil {
+			reject(rescode.ErrInvalidParam, rescode.MsgNonceMustBeString)
+			return
+		}
+		if body.Nonce.Value == "" {
+			reject(rescode.ErrMissingParam, rescode.MsgNonceRequired)
+			return
+		}
 		if load == nil {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 			return
@@ -93,6 +101,7 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 		params := map[string]interface{}{
 			"phone": body.Phone.Value, "pcode": int(body.Pcode.Value),
 			"apikey": body.Apikey, "timestamp": body.Timestamp.Value,
+			"nonce": body.Nonce.Value,
 		}
 		if !utils.VerifySign(params, body.Sign, credential.Secret) {
 			reject(rescode.ErrInvalidSign, rescode.GetCodeMsg(rescode.ErrInvalidSign))

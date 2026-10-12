@@ -23,6 +23,7 @@ type Request struct {
 	Phone     StrictString  `json:"phone"`
 	Pcode     StrictInteger `json:"pcode"`
 	Apikey    string        `json:"apikey"`
+	Nonce     StrictString  `json:"nonce"`
 	Timestamp StrictInteger `json:"timestamp"`
 	Sign      string        `json:"sign"`
 }

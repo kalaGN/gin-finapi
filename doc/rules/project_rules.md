@@ -140,8 +140,10 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
   既有 20 位及其他历史非空标识保持原值兼容，不解密或对摘要重新哈希。
 - /loan 认证中间件通过 JSON apikey 的 SHA-256 摘要读取 Redis String 凭据并验证启停和到期，Body 上限 64 KiB，只解析一次。
 - 签名验证后，经统一读取层按 API Key+pcode 检查产品授权；未命中读 Redis，每 5 分钟后台刷新，不检查缓存年龄；逐次检查业务到期。
-- 签名当前把原始 `phone`、`pcode`、`apikey`、`timestamp` 按 key 排序拼接，加对应凭据 `secret` 后计算
+- 签名当前把 `apikey`、`nonce`、`pcode`、原始 `phone`、`timestamp` 按 key 排序拼接，加对应凭据 `secret` 后计算
   大写 MD5。该算法存在安全/演进风险，但在确认客户端兼容前不得擅自替换。
+- nonce 必须为非空 JSON 字符串，原值签名、保留前导零；缺失/空串为 400/1001，类型错误为 400/1000。
+  不接受旧四字段签名；URL Query 不替代 Body。不因参与签名就宣称已实现 nonce 防重放去重。
 - 成功数据字段由产品 String KV 的映射决定；既有六变量示例仍可配置。变更映射须核对 CSV 列序和客户端兼容。
 - 产品映射缺失或无效为 200/6001；Redis 不可用（包括读取超时）为 503/9002，不回退或误报未查得。
 - 当前没有分页、版本前缀、废弃策略或幂等键约定；标记“待确认”，不能自行创建。
