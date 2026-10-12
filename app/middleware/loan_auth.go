@@ -14,11 +14,6 @@ import (
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
-// LoanAuth 单次解析 JSON，校验 API Key、nonce 和 timestamp 的签名。
-func LoanAuth(load func(context.Context, string) (auth.Credential, error)) gin.HandlerFunc {
-	return loanAuth(load, nil)
-}
-
 // LoanAuthWithProduct 在 API Key 签名认证后校验对应 pcode 的授权。
 func LoanAuthWithProduct(load func(context.Context, string) (auth.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
 	return loanAuth(load, loadProduct)

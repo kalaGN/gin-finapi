@@ -2,35 +2,6 @@ package rescode
 
 import "fmt"
 
-// CodeDefine 定义了一个错误代码及其对应的错误消息。
-type CodeDefine struct {
-	Code int    `json:"code"` // Code 是错误代码
-	Msg  string `json:"msg"`  // Msg 是错误消息
-}
-
-// NewCodeDefine 创建一个新的 CodeDefine 实例。
-func NewCodeDefine(code int, msg string) *CodeDefine {
-	return &CodeDefine{
-		Code: code,
-		Msg:  msg,
-	}
-}
-
-// Error 实现 error 接口
-func (c *CodeDefine) Error() string {
-	return c.Msg
-}
-
-// GetCode 获取错误码
-func (c *CodeDefine) GetCode() int {
-	return c.Code
-}
-
-// GetMsg 获取错误消息
-func (c *CodeDefine) GetMsg() string {
-	return c.Msg
-}
-
 // ==================== 错误码定义 ====================
 // 错误码分段规则：
 // 0        - 成功
@@ -162,39 +133,4 @@ func GetCodeMsg(code int) string {
 		return msg
 	}
 	return fmt.Sprintf("未知错误码: %d", code)
-}
-
-// GetCodeDefine 根据错误代码返回 CodeDefine 对象
-func GetCodeDefine(code int) *CodeDefine {
-	return NewCodeDefine(code, GetCodeMsg(code))
-}
-
-// IsSuccess 判断是否成功
-func IsSuccess(code int) bool {
-	return code == SuccessCode
-}
-
-// IsParamError 判断是否参数错误
-func IsParamError(code int) bool {
-	return code >= 1000 && code < 2000
-}
-
-// IsAuthError 判断是否认证错误
-func IsAuthError(code int) bool {
-	return code >= 2000 && code < 3000
-}
-
-// IsBusinessError 判断是否业务错误
-func IsBusinessError(code int) bool {
-	return code >= 3000 && code < 4000
-}
-
-// IsDatabaseError 判断是否数据库错误
-func IsDatabaseError(code int) bool {
-	return code >= 4000 && code < 5000
-}
-
-// IsSystemError 判断是否系统错误
-func IsSystemError(code int) bool {
-	return code >= 9000 && code < 10000
 }

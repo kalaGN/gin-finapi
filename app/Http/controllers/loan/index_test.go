@@ -213,7 +213,7 @@ func performCreate(t *testing.T, body string, query QueryFunc, sid SIDFunc, secr
 		t.Fatal(err)
 	}
 	router := gin.New()
-	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuth(testKeyReader("key", secret)))
+	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("key", secret), nil))
 	router.ServeHTTP(response, request)
 	return response
 }
@@ -272,7 +272,7 @@ func TestLoanHandler_UsesOriginalPhoneAndRequestContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuth(testKeyReader("key", testSecret)))
+	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("key", testSecret), nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	req := httptest.NewRequest("POST", "/loan", strings.NewReader(validRequestBody(t))).WithContext(ctx)

@@ -8,14 +8,14 @@
 
 - 项目是单仓库、单 Go module、单进程 Gin HTTP 服务，不是已确认的微服务集群。
 - Go 版本以 `go.mod` 为准：`go 1.24.0`、`toolchain go1.24.10`。
-- 直接依赖包括 Gin 1.11.0、MongoDB Driver 1.17.2、go-redis 9.7.0、Logrus 1.8.1、
-  godotenv 1.5.1、gRPC 1.76.0 和 Protobuf 1.36.10。
+- 直接依赖包括 Gin 1.11.0、MongoDB Driver 1.17.2、go-redis 9.7.0、Logrus 1.8.1 和
+  godotenv 1.5.1；Protobuf 由 Gin 间接依赖。
 - `go.mod`、`go.sum` 是依赖事实来源；没有其他包管理器或锁文件。
 - CI 为最小 GitHub Actions 门禁：`.github/workflows/ci.yml` 执行 `gofmt` 检查、`go vet ./...`、
   `go test -race ./...`、`go build ./...`，在 `main`/`dev` 推送和 Pull Request 时触发。
 - 未发现项目级 golangci-lint、Makefile、Dockerfile、Kubernetes、Nginx 或数据库迁移工具。
-- 当前功能边界是健康检查、按 pcode 从 Redis 读取映射并查询 MongoDB、解压后映射变量。gRPC Server、
-  Repository 实现、消息队列和 GraphQL 未确认进入运行链路；配置缓存已有后台刷新。
+- 当前功能边界是健康检查、按 pcode 从 Redis 读取映射并查询 MongoDB、解压后映射变量。
+  消息队列和 GraphQL 未确认进入运行链路；配置缓存已有后台刷新。
 
 ### 目录职责
 
@@ -26,21 +26,19 @@
 | `routes/` | `GET /health`、`POST /loan` 注册 |
 | `app/Http/controllers/loan/` | 已认证请求处理、phone 查询标识、SID 和 HTTP 响应 |
 | `app/loan/`、`app/auth/` | 查询用例、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
-| `app/middleware/` | CORS、日志、进程内限流、LoanAuth；旧 auth.go 未进入主链路 |
+| `app/middleware/` | CORS、日志、进程内限流、LoanAuthWithProduct |
 | `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、后台刷新及关闭 |
 | `pkg/config/` | 主调用链的环境配置入口 |
-| `pkg/env/` | 遗留的重复配置工具，当前未进入主调用链 |
 | `pkg/mongo/` | Store 实例、客户端、查询、gzip 解压和变量映射；无全局客户端入口 |
-| `pkg/redis/` | 产品映射与凭据读取器，统一选项、独立池；旧 redis.go 未接入主链路 |
+| `pkg/redis/` | 产品映射与凭据读取器，统一选项、独立池 |
 | `pkg/rescode/`、`pkg/utils/` | 业务码、SID、时间戳和签名工具 |
-| `app/protos/helloworld/` | 未接入 Server 的 Proto 示例及生成代码 |
 | `cmd/` | 会重建测试集合的 Mongo CLI、用 SET NX 保留已有产品映射的 Redis CLI及显式迁移 |
 | `tests/bench/` | 有外部请求副作用的 Apache Bench 脚本 |
 
 ### 非目标
 
 - 不因“最佳实践”主动改成微服务、Clean Architecture、DDD 或新增 Service/Repository 层。
-- 不把未启用的旧 Redis 封装、gRPC 或部署方案描述成现有能力。
+- 不把依赖库能力或部署设想描述成现有能力。
 - 不在无需求时升级 Go、框架、驱动或引入新的基础设施。
 - 不在文档任务中修复业务代码、清理遗留模块或改变 API 行为。
 
@@ -82,7 +80,7 @@ main.go
   → Recovery → CORS → Logger → 进程内 IP 限流
   → GET /health
   → POST /loan
-      → LoanAuth 单次 JSON/字段/API Key/时间戳/认证字段签名校验
+      → LoanAuthWithProduct 单次 JSON/字段/API Key/时间戳/签名及产品授权校验
       → LoanHandler 归一化查询标识 → app/loan 查询用例
       → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
       → mongo.Store.Query（实例配置）
@@ -102,7 +100,7 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 - Mongo 访问和 BSON/压缩格式处理放在数据访问边界，不向新 Handler 复制连接或解压逻辑。
 - Mongo 保持同包分工：`store.go` 是实例配置/查询入口，`mongo.go` 定义 BSON 类型与超时解析，`client.go` 负责实例客户端生命周期，
   `codec.go` 负责 gzip/CSV 解码与变量映射，`errors.go` 负责错误分类；解码函数不得承担数据库 I/O。
-- 配置应从单一已加载对象读取。当前 `pkg/config` 与 `pkg/env` 重复是已知债务，新增代码不得扩大。
+- 配置从单一已加载的 `pkg/config` 对象读取，不得在请求路径重复加载环境变量。
 - 新抽象必须解决已出现的复用、隔离外部依赖或可测试性问题；单次调用不创建空壳层。
 - 禁止循环依赖。通用包不得反向导入 Controller、Route 或 Bootstrap。
 
@@ -156,12 +154,11 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 - 契约变更必须有需求与设计 Spec、兼容影响、客户端迁移和回滚方案，并增加契约/Handler 测试。
 - HTTP 业务错误码定义来自 `pkg/rescode/rescode.go`；现状并非所有返回都一致，不能凭空统一。
 
-### 未启用 gRPC
+### gRPC / Proto
 
-- `app/protos/helloworld/helloworld.proto` 是仓库中的唯一 Proto，但没有 gRPC Server 启动链路。
-- Proto 是该示例的字段契约来源；已使用字段编号不得重用或改变语义，删除字段应保留编号/名称。
-- `*.pb.go` 是生成文件，不手工修改。仓库未记录 `protoc` 与插件版本/生成命令，变更前先确认。
-- Deadline、Metadata、错误码映射和服务发布方式均待确认，不能把框架能力当成现有实现。
+- 当前仓库没有 Proto IDL、生成代码或 gRPC Server 启动链路。
+- 如需引入 gRPC，必须先通过 Spec 明确契约、生成工具链、兼容策略、Deadline、Metadata、错误码和发布方式。
+- `*.pb.go` 只能从已评审的源 IDL 和固定工具链生成，不手工修改。
 
 ## 5. Go 编码规范
 
@@ -193,7 +190,7 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 ### 依赖与生成代码
 
 - 引入依赖前确认标准库和现有依赖不能满足，并记录用途、维护状态、安全、许可证和体积影响。
-- 升级 Go、Gin、Mongo/Redis Driver、gRPC/Protobuf 需 Spec、兼容评估和全量回归。
+- 升级 Go、Gin、Mongo/Redis Driver 或引入 gRPC/Proto 需 Spec、兼容评估和全量回归。
 - 只因依赖存在不能使用或宣称相关能力已经启用。
 - 生成代码由源 IDL 和固定工具链产生；未知生成命令时停止并标记待确认。
 
@@ -202,7 +199,7 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 ### 当前事实
 
 - 使用 Go 标准 `testing`；测试覆盖 `pkg/utils`、`pkg/rescode`、Mongo、Loan Controller、路由、
-  中间件、主程序关闭编排和 HelloWorld Proto 包。
+  中间件和主程序关闭编排。
 - Redis 产品映射已有离线解析、读取分类和 HTTP 编排测试；真实 Redis/Mongo 回归见 [`集成测试说明`](../../tests/integration/README.md)，使用独立临时容器。
 - 没有真实覆盖率门槛或 E2E CI 门禁；集成测试通过显式脚本运行，不进入默认离线测试。
 

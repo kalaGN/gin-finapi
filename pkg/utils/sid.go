@@ -41,8 +41,3 @@ func generateSID(prefix string, length int, reader io.Reader) (string, error) {
 
 	return sb.String(), nil
 }
-
-// GenerateRandomID 生成纯随机 ID（无前缀）
-func GenerateRandomID(length int) (string, error) {
-	return GenerateSID("", length)
-}

@@ -1,8 +1,6 @@
 package rescode
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestGetCodeMsg(t *testing.T) {
 	tests := []struct {
@@ -29,34 +27,5 @@ func TestGetCodeMsg(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("GetCodeMsg(%d) = %s, want %s", tt.code, got, tt.expected)
 		}
-	}
-}
-
-func TestIsParamError(t *testing.T) {
-	tests := []struct {
-		code     int
-		expected bool
-	}{
-		{ErrInvalidParam, true},
-		{ErrMissingParam, true},
-		{ErrInvalidPhone, true},
-		{ErrInvalidApikey, false},
-		{ErrDataNotFound, false},
-	}
-
-	for _, tt := range tests {
-		got := IsParamError(tt.code)
-		if got != tt.expected {
-			t.Errorf("IsParamError(%d) = %v, want %v", tt.code, got, tt.expected)
-		}
-	}
-}
-
-func TestIsAuthError(t *testing.T) {
-	if !IsAuthError(ErrInvalidApikey) {
-		t.Error("ErrInvalidApikey should be auth error")
-	}
-	if IsAuthError(ErrInvalidParam) {
-		t.Error("ErrInvalidParam should not be auth error")
 	}
 }

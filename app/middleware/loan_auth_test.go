@@ -48,7 +48,7 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 			tt.mutate(b)
 			data, _ := json.Marshal(b)
 			r := gin.New()
-			r.POST("/loan", LoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
+			r.POST("/loan", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
 			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
@@ -86,7 +86,7 @@ func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
 				t.Fatal(err)
 			}
 			router := gin.New()
-			router.POST("/loan", LoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
+			router.POST("/loan", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
 			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
@@ -157,7 +157,7 @@ func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			r.POST("/loan", LoanAuth(testKeyReader(tt.key, tt.secret)), func(c *gin.Context) {
+			r.POST("/loan", testLoanAuth(testKeyReader(tt.key, tt.secret)), func(c *gin.Context) {
 				body, ok := request.Authenticated(c)
 				if !ok || body.Phone.Value != "ciphertext" {
 					t.Fatal("authenticated request not available")
@@ -222,7 +222,7 @@ func TestLoanAuth_RedisCredentials(t *testing.T) {
 			data, _ := json.Marshal(body)
 			called := false
 			router := gin.New()
-			router.POST("/loan", LoanAuth(func(ctx context.Context, key string) (appredis.APIKeyCredential, error) {
+			router.POST("/loan", testLoanAuth(func(ctx context.Context, key string) (appredis.APIKeyCredential, error) {
 				if ctx == nil || key != tc.key {
 					t.Fatal("incorrect lookup")
 				}
@@ -296,7 +296,7 @@ func TestLoanAuth_NonceSignatureContract(t *testing.T) {
 			}
 			data, _ := json.Marshal(body)
 			router := gin.New()
-			router.POST("/loan", LoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) {
+			router.POST("/loan", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) {
 				_, ok := request.Authenticated(c)
 				if !ok {
 					t.Fatal("missing authenticated request")

@@ -39,26 +39,6 @@ func TestGenerateSID(t *testing.T) {
 	}
 }
 
-func TestGenerateRandomID(t *testing.T) {
-	// 测试无前缀的随机 ID
-	id, err := GenerateRandomID(20)
-	if err != nil {
-		t.Fatalf("GenerateRandomID() error = %v", err)
-	}
-
-	// 验证长度
-	if len(id) != 20 {
-		t.Errorf("Expected ID length 20, got %d", len(id))
-	}
-
-	// 验证字符集
-	for _, ch := range id {
-		if !strings.ContainsRune(charset, ch) {
-			t.Errorf("Invalid character '%c' in ID", ch)
-		}
-	}
-}
-
 func TestGenerateSIDUniqueness(t *testing.T) {
 	// 测试生成的 ID 是否唯一
 	ids := make(map[string]bool)

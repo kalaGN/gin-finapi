@@ -61,17 +61,16 @@ Gin FinAPI 当前是一个体量较小、调用链直接的 Go/Gin API 查询服
 | Redis | go-redis 9.7.0，按 pcode 从 String 产品 KV 读取变量映射 |
 | 日志 | Logrus 1.8.1 |
 | 配置 | godotenv + 环境变量 |
-| RPC | gRPC/Protobuf，目前只有 HelloWorld 示例 |
+| RPC | 当前未引入 gRPC Server 或 Proto IDL |
 
 Go 版本以 `go.mod` 的 1.24.0、toolchain 1.24.10 为准；旧 README 的“Go 1.18+”已修正。
 
 ### 2.2 项目规模
 
-- 仓库约 81 个文件。
-- 共有 26 个 Go 文件。
+- 项目是单 Go module、单进程 HTTP 服务。
 - 对外 HTTP 接口仅有 `GET /health` 和 `POST /loan`。
-- 核心业务集中在贷款 Controller 和 MongoDB 查询模块。
-- 仓库存在模型层和 Repository 接口，但尚未真正接入调用链。
+- 核心业务集中在 Loan Handler、配置读取层和 MongoDB 查询模块。
+- 未进入调用链的 Model、Repository、旧 Redis 封装和 HelloWorld Proto 已删除。
 
 ### 2.3 核心调用链
 
@@ -97,16 +96,12 @@ POST /loan
 | `app/loan/`、`app/auth/` | 存储无关的查询流程与认证语义 | 已接入 |
 | `routes/` | 健康检查和贷款路由 | 已接入 |
 | `app/Http/controllers/loan/` | phone 归一化、SID、注入查询和 HTTP 响应映射 | SHA-256 转换为 TODO，返回 503/9002 |
-| `app/middleware/` | CORS、日志、限流和认证 | 部分为占位实现 |
-| `app/models/` | 贷款模型及通用响应 | 未进入核心调用链 |
-| `app/repositories/` | Repository 接口 | 无实现、未使用 |
-| `pkg/config/` | 应用配置 | 已接入；主程序执行必填校验，但配置入口仍重复 |
-| `pkg/env/` | 遗留的 MongoDB 环境变量工具 | 未进入当前主调用链，和 config 职责重复 |
+| `app/middleware/` | CORS、日志、限流、认证和产品授权 | 已接入 |
+| `pkg/config/` | 应用配置 | 已接入；主程序执行必填校验 |
 | `pkg/mongo/` | Mongo 连接池、查询、解压和结果映射 | 已接入 |
-| `pkg/redis/` | 产品变量映射读取器及遗留客户端封装 | product_map.go 已接入；旧 redis.go 未接入主链路 |
+| `pkg/redis/` | 产品变量映射、凭据及产品授权读取器 | 已接入 |
 | `pkg/rescode/` | 业务错误码 | 已接入 |
 | `pkg/utils/` | SID、时间戳和签名工具 | 已接入 |
-| `app/protos/helloworld/` | gRPC 示例 | 未接入实际服务 |
 
 ## 4. 验证基线
 
@@ -124,12 +119,11 @@ go vet ./...
 
 - SID 格式、长度、并发唯一性及随机源失败；
 - 时间戳与签名生成、校验；
-- 错误码分类与消息；
+- 错误码消息；
 - Mongo 客户端初始化重试、并发发布、关闭后重建、错误分类和数据完整性；
 - Loan 参数、成功及错误响应映射；
 - 配置环境读取、默认值和必填校验；
-- Health 路由、CORS、限流和主程序关闭顺序；
-- HelloWorld Protobuf 生成代码。
+- Health 路由、CORS、限流和主程序关闭顺序。
 
 以下关键模块目前仍没有测试：
 
@@ -172,8 +166,8 @@ LoanHandler 仅记录错误操作，不输出可能含凭据或查询内容的�
 
 ### 5.3 部分整改：配置 API Key 鉴权
 
-2026-10-11 `/loan` 挂载 LoanAuth，校验 JSON apikey 是否等于 API_KEY，并以 SECRET_KEY 验证原值签名。
-目前是单个配置账号，没有多账号状态或权限系统。旧 AuthRequired/APIKeyAuth 仍为未使用占位，不得误接入。
+2026-10-11 `/loan` 已通过 Redis 凭据按 API Key 读取独立 secret，并校验状态、到期时间、签名和产品授权。
+旧 `AuthRequired`、`APIKeyAuth` 占位实现已删除。
 
 建议：明确认证模型，在签名验证前查询 API Key 对应的主体、状态和密钥；认证失败统一返回认证错误，不进入 MongoDB 查询。
 
@@ -254,30 +248,15 @@ HTTP Handler
   → MongoDB
 ```
 
-### 5.9 P2：配置入口重复
+### 5.9 已整改：配置入口重复
 
-历史上 MongoDB 配置同时存在于：
+MongoDB 配置已统一从 `pkg/config` 读取并注入 Store 配置快照；旧 `pkg/env`、`mongo.Config`、
+`GetMongo` 和兼容 Getter 已删除。
 
-- `pkg/config`；
-- `pkg/env`；
-- Controller 构造的 `mongo.Config`；
-- `GetMongo` 内部再次读取环境变量。
+### 5.10 已整改：未使用或半成品模块
 
-当前主调用链已统一从 `pkg/config` 读取并注入 Store 配置快照，`mongo.Config` 和 `GetMongo` 已删除；
-`pkg/env` 仍是未删除的重复遗留工具。
-
-建议只保留统一的配置加载入口，并通过依赖注入将数据库或 Repository 传给 Service。
-
-### 5.10 P2：未使用或半成品模块较多
-
-- 旧 Redis 通用封装未接入；新的产品映射读取器已进入业务链路；
-- `LoanRepository` 只有接口，没有实现；
-- `LoanRequest` 模型未使用；
-- gRPC 只有 HelloWorld 示例；
-- `connectToMongoDB` 原为未使用的旧连接实现，现已按用户要求删除；
-- 遗留认证中间件有占位逻辑，当前 LoanAuth 已提供配置账号鉴权。
-
-这些代码会增加理解成本并制造“功能已经具备”的错觉。应明确近期用途，否则删除或移入示例目录。
+旧 Redis 通用封装、LoanRepository、LoanRequest Model、HelloWorld Proto、旧 Mongo 连接实现和占位认证中间件均已删除；
+当前目录只保留已进入应用、测试或独立运维 CLI 的实现。
 
 ## 6. 性能与可观测性判断
 
@@ -326,8 +305,8 @@ HTTP Handler
 | 部分整改 | Controller、路由、中间件、Mongo、Redis 映射、配置和主程序已有直接测试；真实 Redis/Mongo 集成仍缺失 | 核心纯逻辑与离线 HTTP 链路可回归，外部集成仍有盲区 | 在隔离环境补依赖故障和真实集成测试 |
 | 已整改 | `pcode`、`timestamp` 使用严格 JSON 整数解析 | 小数、字符串、指数和溢出不再被静默接受 | 保持边界测试 |
 | P1 | `cmd/init_mongo.go` 对 16 个同名集合执行 `Drop` | 误用会造成数据丢失 | 仅授权测试环境运行，增加目标确认与回滚方案 |
-| 部分整改 | 主调用链统一到 `pkg/config`，但 `pkg/env` 遗留工具仍重复 | 能力误判和维护成本仍存在 | 确认无外部使用后，在独立清理任务中移除 |
-| P2 | 旧 Redis 封装、Repository/Model、gRPC 示例和旧 Mongo 连接函数未进入主链路 | 增加维护成本并造成能力误判；不包含已启用的产品映射 | 由负责人确认规划后再保留、隔离或删除 |
+| 已整改 | 主调用链统一到 `pkg/config`，旧 `pkg/env` 和兼容 Getter 已删除 | 配置入口单一 | 新代码继续使用启动时加载的配置快照 |
+| 已整改 | 旧 Redis 封装、Repository/Model、HelloWorld Proto、旧 Mongo 连接和占位认证均已删除 | 降低维护成本和能力误判 | 新能力按真实需求和 Spec 引入 |
 | P2 | `README.md` 的 Go 1.18+、JWT/API Key、Redis、Docker 和限流描述与代码不一致 | 新成员和 AI 使用错误事实 | 单独审查 README；本次只记录，不擅自改产品说明 |
 | 部分整改 | 已引入最小 CI（`.github/workflows/ci.yml`：gofmt、vet、`test -race`、build），仍无项目级 Lint、漏洞扫描、覆盖率门槛或部署清单 | 格式、编译、竞态与构建回归可自动拦截；更细的质量门禁依赖人工 | 按需通过 Spec 补 golangci-lint、覆盖率门槛与漏洞扫描 |
 | 部分整改 | 约 27 MB 的本机 Mach-O `main` 已移出 Git 跟踪，`.gitignore` 增加 `/main` | 新提交不再累积该二进制；历史中的 blob 仍占据仓库体积 | 如需缩减历史体积，另行评估 history filter 与强推影响 |
@@ -356,9 +335,9 @@ HTTP Handler
 
 1. 已完成：使用明确的 Loan 请求 DTO 和严格整数类型。
 2. 已完成 LoanAuth 与注入式 LoanHandler；出现实际多步骤业务编排时再评估 Service。
-3. 现有 QueryFunc 已隔离 Mongo 访问；Repository CRUD 接口仍未使用，不为填充分层接入。
-4. 主调用链已统一使用 `pkg/config`；遗留 `pkg/env` 的清理待确认。
-5. 清理或明确旧 Redis 封装、gRPC、旧 Mongo 连接代码和占位认证模块，保留已启用的产品映射。
+3. 现有 QueryFunc 已隔离 Mongo 访问；未使用的 Repository CRUD 接口已删除。
+4. 主调用链已统一使用 `pkg/config`，旧 `pkg/env` 和兼容 Getter 已删除。
+5. 旧 Redis 封装、HelloWorld Proto、旧 Mongo 连接代码和占位认证模块已清理，已启用的产品映射保留。
 
 ### 阶段四：测试与交付
 

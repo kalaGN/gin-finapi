@@ -280,14 +280,8 @@ Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除�
 router.Use(middleware.YourMiddleware())
 ```
 
-或在特定路由组使用：
-
-```go
-api := router.Group("/api")
-api.Use(middleware.LoanAuth(config.Config.APIKey, config.Config.SecretKey))
-```
-
-LoanAuth 专用于本项目 Loan JSON 契约；旧 AuthRequired/APIKeyAuth 仍是未启用占位实现。
+`/loan` 的认证与产品授权由 `bootstrap/route.go` 注入
+`middleware.LoanAuthWithProduct`；不要在路由层读取静态密钥或绕过产品授权。
 
 ## Docker 部署
 

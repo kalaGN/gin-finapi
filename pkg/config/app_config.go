@@ -126,40 +126,6 @@ func getEnvIntWithDefault(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// GetServerPort 获取服务端口
-func GetServerPort() string {
-	if Config == nil {
-		_ = Load()
-	}
-	return Config.Server.Port
-}
-
-// GetMongoConfig 获取 MongoDB 配置
-func GetMongoConfig() MongoDBConfig {
-	if Config == nil {
-		_ = Load()
-	}
-	return Config.MongoDB
-}
-
-// GetRedisConfig 获取 Redis 配置
-func GetRedisConfig() RedisConfig {
-	if Config == nil {
-		_ = Load()
-	}
-	return Config.Redis
-}
-
-// LoadPort 保持向后兼容
-func LoadPort() (string, error) {
-	if Config == nil {
-		if err := Load(); err != nil {
-			return "", err
-		}
-	}
-	return Config.Server.Port, nil
-}
-
 // Validate 验证配置
 func (c *AppConfig) Validate() error {
 	if err := c.Cache.WithDefaults().Validate(); err != nil {

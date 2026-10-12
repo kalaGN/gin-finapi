@@ -2,7 +2,6 @@
 package logger
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -32,17 +31,5 @@ func Init() {
 			TimestampFormat: "2006-01-02 15:04:05",
 		})
 		Log.SetLevel(logrus.DebugLevel)
-	}
-}
-
-// ErrorString 打印错误信息到标准错误输出
-func ErrorString(module, function, message string) {
-	_, _ = fmt.Fprintf(os.Stderr, "Error in %s.%s: %s\n", module, function, message)
-}
-
-// LogIf 如果 err 不为 nil，则打印错误信息到标准错误输出
-func LogIf(err error) {
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
 	}
 }
