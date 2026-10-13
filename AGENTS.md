@@ -11,7 +11,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - Go `1.24.0`，toolchain `go1.24.10`；Gin `1.11.0`。
 - 应用入口：`main.go`（信号与退出码）→ `bootstrap.Run`（装配与生命周期）。
 - 路由：`routes/api.go`；中间件：`app/middleware/`。
-- 核心处理：LoanHandler → `app/loan/query.go` → `pkg/mongo/store.go`（实例配置与客户端）。
+- 核心处理：LoanHandler → `app/services/product_query.go` → `pkg/mongo/store.go`（实例配置与客户端）。
 - `app/auth/` 定义认证凭据和错误；Handler/认证中间件不直接引用存储包。
 - `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；MD5 截前 20 位查 t。
 - JSON nonce 为必填非空字符串；签名字段为 apikey、nonce、timestamp，排序拼接后附 secret 做 MD5；无防重放去重。
@@ -64,6 +64,7 @@ go vet cmd/init_redis.go
 - 不提交 `.env`、Token、证书、连接串、完整手机号、API Key、签名或响应敏感数据。
 - 不因依赖已存在就宣称能力已启用；以主调用链和启动代码为准。
 - 不无需求增加依赖、层级、服务、中间件、基础设施或部署组件。
+- 未经用户事先明确确认，不得在 `app/` 下新增目录；优先使用既有目录，不随意按功能拆包。
 - 新功能和缺陷修复必须同步测试；Bug 修复遵循“复现→失败测试→根因→最小修复→回归”。
 - 数据、外部依赖、架构、部署、安全或性能变更先评估影响；复杂变更先建 Spec。
 - 不吞掉错误、删除测试或降低校验来让检查通过。

@@ -14,8 +14,8 @@ import (
 	handlerloan "github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
 	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/configdata"
-	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
@@ -59,7 +59,7 @@ func TestLoanWithConfigCache(t *testing.T) {
 			}
 			defer reader.Close(ctx)
 			queries := 0
-			query, err := queryloan.NewQuery(reader.LoadProductMap, func(context.Context, string, map[string]int) (map[string]int, error) {
+			query, err := services.NewQuery(reader.LoadProductMap, func(context.Context, string, map[string]int) (map[string]int, error) {
 				queries++
 				return map[string]int{"a": 5}, nil
 			})

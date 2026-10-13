@@ -30,7 +30,7 @@ gin-finapi/
 ├── app/
 │   ├── Http/controllers/    # 控制器层
 │   │   └── loan/            # 贷款业务
-│   ├── loan/               # 查询用例与稳定错误语义
+│   ├── services/           # 产品查询编排与稳定错误语义
 │   ├── auth/               # 不依赖存储的认证凭据与错误
 │   ├── middleware/          # 中间件
 │   │   ├── loan_auth.go     # JSON API Key + 签名鉴权

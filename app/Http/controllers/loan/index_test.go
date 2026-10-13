@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/kalaGN/gin-finapi/routes"
@@ -132,14 +132,14 @@ func TestCreate_MapsDataErrorsWithoutLeakingDetails(t *testing.T) {
 		wantHTTP   int
 		wantStatus int
 	}{
-		{"not found", queryloan.ErrNotFound, http.StatusOK, rescode.ErrDataNotFound},
-		{"product mapping", queryloan.ErrProductMapping, http.StatusOK, rescode.ErrProductException},
-		{"Redis unavailable", queryloan.ErrUnavailable, http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
-		{"Redis timeout", errors.Join(queryloan.ErrUnavailable, context.DeadlineExceeded), http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
+		{"not found", services.ErrNotFound, http.StatusOK, rescode.ErrDataNotFound},
+		{"product mapping", services.ErrProductMapping, http.StatusOK, rescode.ErrProductException},
+		{"Redis unavailable", services.ErrUnavailable, http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
+		{"Redis timeout", errors.Join(services.ErrUnavailable, context.DeadlineExceeded), http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
 		{"timeout", context.DeadlineExceeded, http.StatusGatewayTimeout, rescode.ErrTimeout},
 		{"canceled", context.Canceled, http.StatusGatewayTimeout, rescode.ErrTimeout},
-		{"unavailable", queryloan.ErrUnavailable, http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
-		{"invalid data", queryloan.ErrInvalidData, http.StatusInternalServerError, rescode.ErrInternalError},
+		{"unavailable", services.ErrUnavailable, http.StatusServiceUnavailable, rescode.ErrServiceUnavailable},
+		{"invalid data", services.ErrInvalidData, http.StatusInternalServerError, rescode.ErrInternalError},
 		{"unknown", errors.New("driver secret details"), http.StatusInternalServerError, rescode.ErrInternalError},
 	}
 

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/kalaGN/gin-finapi/app/auth"
-	"github.com/kalaGN/gin-finapi/app/loan"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 )
 
@@ -172,12 +172,12 @@ func TestReaderMappingIsolationAndRefresh(t *testing.T) {
 	}
 	readErr = ErrInvalidRecord
 	r.Refresh(ctx)
-	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, loan.ErrProductMapping) {
+	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, services.ErrProductMapping) {
 		t.Fatal(err)
 	}
 	readErr = nil
 	found = false
-	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, loan.ErrProductMapping) {
+	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, services.ErrProductMapping) {
 		t.Fatal(err)
 	}
 }
@@ -354,7 +354,7 @@ func TestCacheAdmissionWaitHasTimeout(t *testing.T) {
 	r.mappings.gate <- struct{}{}
 	defer func() { <-r.mappings.gate }()
 	_, err := r.LoadProductMap(context.Background(), 1)
-	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, loan.ErrUnavailable) {
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, services.ErrUnavailable) {
 		t.Fatalf("queue timeout=%v", err)
 	}
 	if len(r.mappings.keys()) != 0 {
@@ -409,7 +409,7 @@ func TestReaderDisabledReadsEverySourceAndNeverCaches(t *testing.T) {
 	if _, err := r.LoadCredential(ctx, "key"); !errors.Is(err, auth.ErrUnavailable) {
 		t.Fatal("used stale credential")
 	}
-	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, loan.ErrUnavailable) {
+	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, services.ErrUnavailable) {
 		t.Fatal("used stale mapping")
 	}
 	before := counts

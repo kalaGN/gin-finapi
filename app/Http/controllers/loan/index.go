@@ -7,14 +7,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	queryloan "github.com/kalaGN/gin-finapi/app/loan"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/sirupsen/logrus"
 )
 
 type CommonRes = request.Response
-type QueryFunc = queryloan.QueryFunc
+type QueryFunc = services.QueryFunc
 type SIDFunc func(string, int) (string, error)
 
 var errPhoneConversionUnavailable = errors.New("SHA-256 phone conversion service is not connected")
@@ -78,11 +78,11 @@ func (h *LoanHandler) Create(c *gin.Context) {
 func (h *LoanHandler) writeQueryError(c *gin.Context, err error) {
 	h.logInternalError("query loan data")
 	switch {
-	case errors.Is(err, queryloan.ErrProductMapping):
+	case errors.Is(err, services.ErrProductMapping):
 		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrProductException, Msg: rescode.GetCodeMsg(rescode.ErrProductException)})
-	case errors.Is(err, queryloan.ErrUnavailable):
+	case errors.Is(err, services.ErrUnavailable):
 		c.JSON(http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
-	case errors.Is(err, queryloan.ErrNotFound):
+	case errors.Is(err, services.ErrNotFound):
 		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrDataNotFound, Msg: rescode.GetCodeMsg(rescode.ErrDataNotFound)})
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		c.JSON(http.StatusGatewayTimeout, CommonRes{Status: rescode.ErrTimeout, Msg: rescode.GetCodeMsg(rescode.ErrTimeout)})

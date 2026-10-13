@@ -25,7 +25,7 @@
 | `bootstrap/` | 配置、日志、依赖和路由装配；HTTP 生命周期和资源关闭 |
 | `routes/` | `GET /health`、`POST /api` 注册 |
 | `app/Http/controllers/loan/` | 已认证请求处理、phone 查询标识、SID 和 HTTP 响应 |
-| `app/loan/`、`app/auth/` | 查询用例、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
+| `app/services/`、`app/auth/` | 查询编排、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
 | `app/middleware/` | CORS、日志、进程内限流、LoanAuthWithProduct |
 | `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、后台刷新及关闭 |
 | `pkg/config/` | 主调用链的环境配置入口 |
@@ -81,7 +81,7 @@ main.go
   → GET /health
   → POST /api
       → LoanAuthWithProduct 单次 JSON/字段/API Key/时间戳/签名及产品授权校验
-      → LoanHandler 归一化查询标识 → app/loan 查询用例
+      → LoanHandler 归一化查询标识 → app/services 产品查询编排
       → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
       → mongo.Store.Query（实例配置）
       → Mongo FindOne(t=phone)
@@ -90,7 +90,7 @@ main.go
 ```
 
 LoanHandler 显式注入查询、SID 和 Logger；bootstrap 仅装配查询用例、存储错误适配、认证和限流。
-HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，稳定语义分别来自 app/loan、app/auth。
+HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，稳定语义分别来自 app/services、app/auth。
 未使用的 LoanRepository 接口已移除，不为本查询创建 CRUD 分层。
 
 ### 职责与依赖
@@ -102,6 +102,7 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
   `codec.go` 负责 gzip/CSV 解码与变量映射，`errors.go` 负责错误分类；解码函数不得承担数据库 I/O。
 - 配置从单一已加载的 `pkg/config` 对象读取，不得在请求路径重复加载环境变量。
 - 新抽象必须解决已出现的复用、隔离外部依赖或可测试性问题；单次调用不创建空壳层。
+- 未经用户事先明确确认，不得在 app/ 下新增目录；复用现有职责目录，不随意增加功能包。
 - 禁止循环依赖。通用包不得反向导入 Controller、Route 或 Bootstrap。
 
 ### 未建立的边界

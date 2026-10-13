@@ -1,5 +1,8 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-13：产品查询编排迁入 app/services/product_query.go，保留原函数和错误语义；
+> 后续 app 下新增目录须先获用户明确确认。
+
 > 2026-10-13：phone 在读取凭据前限制为 32/64 字节，其他非空长度为 400/1002；
 > 下文任意非空/20 位标识兼容描述为历史记录。仅限制长度，不额外强制十六进制。
 > 详见 [phone 长度校验设计](../specs/20261013-phone长度校验-设计.md)。
@@ -35,7 +38,7 @@ LoanAuth 已改为每次 GET 独立 Redis String 凭据，使用每 Key secret �
 ### 2026-10-11 P1/P2 架构边界修复
 
 本节覆盖下文较早的全局 Mongo、Handler 直连存储和启动 Fatal 描述。
-事实来源：bootstrap/app.go、lifecycle.go、route.go、app/loan/query.go、app/auth/credential.go、
+事实来源：bootstrap/app.go、lifecycle.go、route.go、app/services/product_query.go、app/auth/credential.go、
 pkg/mongo/store.go、pkg/redis/client.go，以及对应测试和 CI。
 
 - main 只管理信号与退出码，Run 统一启动/服务错误/清理；日志不直接输出底层错误。
@@ -43,7 +46,7 @@ pkg/mongo/store.go、pkg/redis/client.go，以及对应测试和 CI。
   服务退出等待有额外 5s 保护，不是严格 10s 硬上限，生产终止宽限时间待确认。
 - 主链路使用 Mongo Store 的实例配置、客户端和超时，关闭未初始化实例不连接，关闭后拒绝重开。
   用户确认后已移除旧 GetMongo/GetClient/包级 Close，查询和关闭仅通过 Store 实例。
-- app/loan 负责加载映射后查询数据；装配适配层转换存储错误，Handler 只依赖业务语义。
+- app/services 负责加载映射后查询数据；装配适配层转换存储错误，Handler 只依赖业务语义。
   app/auth 定义凭据与认证错误，中间件不直接依赖 Redis 类型。
 - Redis 统一客户端选项，认证/产品映射各自拥有一个池；PoolSize 分别作用于每池，不是全应用上限。
 - Redis CLI 保持单文件运行，CI 显式覆盖独立 vet、竞态测试和编译；不运行或写入外部数据。
@@ -97,7 +100,7 @@ POST /api
 | --- | --- | --- |
 | `main.go` | 信号、Run 和退出码 | 已接入 |
 | `bootstrap/` | 应用依赖装配、HTTP 生命周期、资源关闭和路由注册 | 已接入 |
-| `app/loan/`、`app/auth/` | 存储无关的查询流程与认证语义 | 已接入 |
+| `app/services/`、`app/auth/` | 存储无关的查询流程与认证语义 | 已接入 |
 | `routes/` | 健康检查和贷款路由 | 已接入 |
 | `app/Http/controllers/loan/` | phone 归一化、SID、注入查询和 HTTP 响应映射 | SHA-256 转换为 TODO，返回 503/9002 |
 | `app/middleware/` | CORS、日志、限流、认证和产品授权 | 已接入 |

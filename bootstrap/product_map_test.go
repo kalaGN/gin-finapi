@@ -12,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
-	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
 	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"github.com/kalaGN/gin-finapi/pkg/request"
@@ -48,7 +48,7 @@ func TestLoanQuery_UsesProductMapThroughAuthenticatedRoute(t *testing.T) {
 				}
 				return map[string]int{"other": 1, "last": 5}, nil
 			}
-			query, err := queryloan.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
+			query, err := services.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
 				mapping, err := load(ctx, pcode)
 				return mapping, queryError(err)
 			}, func(ctx context.Context, phone string, mapping map[string]int) (map[string]int, error) {

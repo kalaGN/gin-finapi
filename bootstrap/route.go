@@ -9,8 +9,8 @@ import (
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
 	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/configdata"
-	queryloan "github.com/kalaGN/gin-finapi/app/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
 	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
@@ -45,7 +45,7 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	closeDependencies := func(ctx context.Context) error {
 		return errors.Join(reader.Close(ctx), store.Close(ctx), keys.Close(), maps.Close())
 	}
-	query, err := queryloan.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
+	query, err := services.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
 		mapping, err := reader.LoadProductMap(ctx, pcode)
 		return mapping, queryError(err)
 	}, func(ctx context.Context, phone string, mapping map[string]int) (map[string]int, error) {
@@ -76,17 +76,17 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 func queryError(err error) error {
 	switch {
 	case errors.Is(err, appredis.ErrProductMapping):
-		return errors.Join(queryloan.ErrProductMapping, err)
+		return errors.Join(services.ErrProductMapping, err)
 	case errors.Is(err, appredis.ErrMappingUnavailable):
-		return errors.Join(queryloan.ErrUnavailable, err)
+		return errors.Join(services.ErrUnavailable, err)
 	case errors.Is(err, mongo.ErrNotFound):
-		return errors.Join(queryloan.ErrNotFound, err)
+		return errors.Join(services.ErrNotFound, err)
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return err
 	case errors.Is(err, mongo.ErrUnavailable):
-		return errors.Join(queryloan.ErrUnavailable, err)
+		return errors.Join(services.ErrUnavailable, err)
 	case errors.Is(err, mongo.ErrInvalidData):
-		return errors.Join(queryloan.ErrInvalidData, err)
+		return errors.Join(services.ErrInvalidData, err)
 	default:
 		return err
 	}

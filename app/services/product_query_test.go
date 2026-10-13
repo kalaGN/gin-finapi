@@ -1,4 +1,4 @@
-package loan
+package services
 
 import (
 	"context"

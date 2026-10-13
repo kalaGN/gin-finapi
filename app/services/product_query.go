@@ -1,5 +1,5 @@
-// Package loan 定义查询流程和与存储实现无关的错误语义。
-package loan
+// Package services 定义业务流程和与存储实现无关的错误语义。
+package services
 
 import (
 	"context"

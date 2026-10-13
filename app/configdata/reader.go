@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/kalaGN/gin-finapi/app/auth"
-	"github.com/kalaGN/gin-finapi/app/loan"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 )
 
@@ -115,13 +115,13 @@ func (r *Reader) CheckProductAccess(ctx context.Context, key string, pcode int) 
 func (r *Reader) LoadProductMap(ctx context.Context, pcode int) (map[string]int, error) {
 	value, found, err := r.mappings.load(ctx, pcode, false)
 	if errors.Is(err, ErrInvalidRecord) {
-		return nil, loan.ErrProductMapping
+		return nil, services.ErrProductMapping
 	}
 	if err != nil {
-		return nil, errors.Join(loan.ErrUnavailable, err)
+		return nil, errors.Join(services.ErrUnavailable, err)
 	}
 	if !found {
-		return nil, loan.ErrProductMapping
+		return nil, services.ErrProductMapping
 	}
 	return value, nil
 }
