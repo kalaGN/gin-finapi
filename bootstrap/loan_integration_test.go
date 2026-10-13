@@ -80,7 +80,7 @@ func TestLoanIntegration(t *testing.T) {
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	phone := "integration-fixture"
+	phone := "integration-fixturerrrrrrrrrrrrr"
 	if _, err := db.Collection("data_20251101_0").InsertOne(ctx, bson.M{"t": phone, "v": payload.Bytes()}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestLoanIntegration(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				req := httptest.NewRequest("POST", "/loan", bytes.NewReader(raw))
+				req := httptest.NewRequest("POST", "/api", bytes.NewReader(raw))
 				req.Header.Set("Content-Type", "application/json")
 				w := httptest.NewRecorder()
 				router.ServeHTTP(w, req)

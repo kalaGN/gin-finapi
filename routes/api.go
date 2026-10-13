@@ -22,6 +22,6 @@ func RegisterAPIRoutes(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc
 		c.String(http.StatusOK, "ok")
 	})
 
-	// Loan 路由
-	router.POST("/loan", loanAuth, loanHandler)
+	// Loan 业务接口统一挂在 /api 入口。
+	router.POST("/api", loanAuth, loanHandler)
 }

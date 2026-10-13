@@ -1,5 +1,9 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-13：phone 在读取凭据前限制为 32/64 字节，其他非空长度为 400/1002；
+> 下文任意非空/20 位标识兼容描述为历史记录。仅限制长度，不额外强制十六进制。
+> 详见 [phone 长度校验设计](../specs/20261013-phone长度校验-设计.md)。
+
 > 2026-10-12：已删除无引用的 `app/repositories/loan_repository.go`；下文 Repository 存在性描述为历史记录，模型保留。
 
 > 初次分析：2026-08-03；本轮统一缓存、产品 KV 和生命周期复核：2026-10-12
@@ -68,14 +72,14 @@ Go 版本以 `go.mod` 的 1.24.0、toolchain 1.24.10 为准；旧 README 的“G
 ### 2.2 项目规模
 
 - 项目是单 Go module、单进程 HTTP 服务。
-- 对外 HTTP 接口仅有 `GET /health` 和 `POST /loan`。
+- 对外 HTTP 接口仅有 `GET /health` 和 `POST /api`。
 - 核心业务集中在 Loan Handler、配置读取层和 MongoDB 查询模块。
 - 未进入调用链的 Model、Repository、旧 Redis 封装和 HelloWorld Proto 已删除。
 
 ### 2.3 核心调用链
 
 ```text
-POST /loan
+POST /api
   → Gin 全局中间件
   → LoanAuth：单次 JSON/类型/配置 API Key/时间戳/认证字段签名校验
   → 注入式 LoanHandler：MD5 截前 20 位，旧查询标识兼容
@@ -166,7 +170,7 @@ LoanHandler 仅记录错误操作，不输出可能含凭据或查询内容的�
 
 ### 5.3 部分整改：配置 API Key 鉴权
 
-2026-10-11 `/loan` 已通过 Redis 凭据按 API Key 读取独立 secret，并校验状态、到期时间、签名和产品授权。
+2026-10-11 `/api` 已通过 Redis 凭据按 API Key 读取独立 secret，并校验状态、到期时间、签名和产品授权。
 旧 `AuthRequired`、`APIKeyAuth` 占位实现已删除。
 
 建议：明确认证模型，在签名验证前查询 API Key 对应的主体、状态和密钥；认证失败统一返回认证错误，不进入 MongoDB 查询。
@@ -278,7 +282,7 @@ MongoDB 配置已统一从 `pkg/config` 读取并注入 Store 配置快照；旧
 - README 写 Go 1.18+，实际要求 Go 1.24；
 - README 包含 Docker 构建和运行说明，仓库没有 Dockerfile；
 - 历史 README 宣称 Redis 能力而未启用；当前已实际用于产品映射，连接池和读超时均配置化；
-- README 中的认证示例没有反映 `/loan` 当前真实注册方式；
+- README 中的认证示例没有反映 `/api` 当前真实注册方式；
 - 项目根目录已有 `AGENTS.md`，并以 `doc/README.md` 作为规则、Spec 和 Knowledge 索引；
 - 仓库跟踪了约 27 MB 的 macOS arm64 编译产物 `main`，增加仓库体积且不具备跨平台复用价值；约 2.7 MB 的 `access.log` 已被忽略但会污染本地工作区。
 
@@ -342,7 +346,7 @@ MongoDB 配置已统一从 `pkg/config` 读取并注入 Store 配置快照；旧
 ### 阶段四：测试与交付
 
 1. 已完成：为 Controller 增加表驱动参数校验测试。
-2. 已完成：使用 `httptest` 覆盖 `/health`、`/loan` 和相关中间件边界。
+2. 已完成：使用 `httptest` 覆盖 `/health`、`/api` 和相关中间件边界。
 3. 已完成异常数据单元测试；真实 MongoDB 集成测试仍待隔离环境。
 4. 已完成：增加 SID 并发测试和限流边界测试。
 5. 生成覆盖率报告并设定最低门槛。
@@ -356,7 +360,7 @@ MongoDB 配置已统一从 `pkg/config` 读取并注入 Store 配置快照；旧
 - 仓库及日志中不存在明文签名密钥、完整 API Key 和完整手机号；
 - 非法或未知 API Key 无法通过认证；
 - `go test ./...`、`go test -race ./...`、`go vet ./...` 全部通过；
-- `/loan` 的参数、认证、签名、未查得、数据库异常和成功路径均有自动化测试；
+- `/api` 的参数、认证、签名、未查得、数据库异常和成功路径均有自动化测试；
 - MongoDB 启动失败和运行期故障具有明确行为及可观测指标；
 - Controller 不直接读取环境变量或操作 MongoDB；
 - README、Go 版本、Docker 部署说明和实际代码保持一致；

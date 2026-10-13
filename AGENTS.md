@@ -3,7 +3,7 @@
 ## 项目定位
 
 Gin FinAPI 是一个单仓库、单 Go module 的 Gin HTTP 查询服务。当前真实启用的接口为
-`GET /health` 和 `POST /loan`；Loan 请求查询 MongoDB 中的 gzip 数据并映射为变量结果。
+`GET /health` 和 `POST /api`；Loan 请求查询 MongoDB 中的 gzip 数据并映射为变量结果。
 Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未使用的 Model、HelloWorld gRPC、旧 Redis 封装和 LoanRepository 接口已移除。
 
 ## 技术与入口
@@ -13,10 +13,10 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - 路由：`routes/api.go`；中间件：`app/middleware/`。
 - 核心处理：LoanHandler → `app/loan/query.go` → `pkg/mongo/store.go`（实例配置与客户端）。
 - `app/auth/` 定义认证凭据和错误；Handler/认证中间件不直接引用存储包。
-- `/loan` 认证：`app/middleware/loan_auth.go`；MD5 phone 截前 20 位查 t，旧标识兼容。
+- `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；MD5 截前 20 位查 t。
 - JSON nonce 为必填非空字符串；签名字段为 apikey、nonce、timestamp，排序拼接后附 secret 做 MD5；无防重放去重。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
-- `/loan` 凭据来自 Redis String `gin-finapi:auth:apikey:v1:<sha256(apikey)>`，每 Key 独立 secret、status、expires_at；不读取 API_KEY/SECRET_KEY，不自动写入。
+- `/api` 凭据来自 Redis String `gin-finapi:auth:apikey:v1:<sha256(apikey)>`，每 Key 独立 secret、status、expires_at；不读取 API_KEY/SECRET_KEY，不自动写入。
 - API Key 缺失/禁用/到期为 400/2001；产品授权缺失/禁用/到期为 403/2004；Redis 故障或损坏记录为 503/9002。
 - `app/configdata/` 统一缓存凭据、产品授权、产品映射；内存优先、未命中读 Redis，每 5 分钟后台刷新，不检查缓存年龄。
 - `REDIS_CACHE_ENABLED` 默认 true；false 时逐请求直读 Redis，不回填或启动刷新，修改后重启生效。

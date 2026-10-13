@@ -46,7 +46,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需Mongo，当前转换服务TODO。"
           },
           "event": [
@@ -107,7 +107,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -168,7 +168,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -229,7 +229,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -290,7 +290,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -351,7 +351,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -412,7 +412,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -473,7 +473,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -534,7 +534,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -595,7 +595,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -656,7 +656,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "无需数据库；请求应在认证或字段校验阶段被拒绝。"
           },
           "event": [
@@ -704,7 +704,7 @@
       "name": "需要测试Redis/Mongo和Fixture",
       "item": [
         {
-          "name": "20位标识查询成功",
+          "name": "32位非十六进制标识查询成功",
           "request": {
             "method": "POST",
             "header": [
@@ -722,8 +722,8 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
-            "description": "需要 fixture_short：Mongo t=short_phone，v=gzip('1,2,3,4,5,6')。"
+            "url": "{{base_url}}/api",
+            "description": "需要 fixture_short（32位非十六进制标识）：Mongo t=short_phone，v=gzip('1,2,3,4,5,6')。"
           },
           "event": [
             {
@@ -786,7 +786,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "需要 fixture_md5：t=md5_phone 前20位，v=gzip('1,2,3,4,5,6')。"
           },
           "event": [
@@ -850,7 +850,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan?apikey=invalid-query-key&timestamp=0&nonce=3093&sign=invalid-query-sign",
+            "url": "{{base_url}}/api?apikey=invalid-query-key&timestamp=0&nonce=3093&sign=invalid-query-sign",
             "description": "同20位成功数据；URL凭据故意不同。"
           },
           "event": [
@@ -914,7 +914,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "确认 missing_phone 在测试集合中不存在。"
           },
           "event": [
@@ -980,7 +980,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "需要 corrupt_phone 对应 v 为非gzip字节。"
           },
           "event": [
@@ -1041,7 +1041,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "仅专用故障服务：Mongo指向不可连接端口；不得停止业务Mongo。驱动独立超时分类为9002；若请求Context超时则为504/9003。"
           },
           "event": [
@@ -1102,7 +1102,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "独立测试 Redis 中 mongo_map 的 missing_pcode 字段不存在；不得删除生产配置。"
           },
           "event": [
@@ -1165,7 +1165,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "独立测试 Redis 中 invalid_map_pcode 字段配置为无效 JSON；不得覆盖生产配置。"
           },
           "event": [
@@ -1228,7 +1228,7 @@
                 }
               }
             },
-            "url": "{{base_url}}/loan",
+            "url": "{{base_url}}/api",
             "description": "仅专用故障服务配置不可连接的 Redis 端口；禁止停止业务 Redis。"
           },
           "event": [

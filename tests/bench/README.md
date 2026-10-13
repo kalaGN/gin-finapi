@@ -2,6 +2,10 @@
 
 本目录包含 Gin FinAPI 系统的压力测试脚本。
 
+> 历史脚本的短 phone 样例已不符合当前 32/64 字节长度约束，且请求缺少完整认证参数；
+> 不可用于成功查询的性能验收。执行前必须准备合法长度的测试标识、实时认证参数及隔离数据，
+> 本次仅标记限制，不运行压测或改写历史压测逻辑。
+
 ## 📁 文件说明
 
 - `bench.sh` - Linux/macOS 压测脚本
@@ -87,7 +91,7 @@ results/
 
 ```bash
 BASE_URL="http://localhost:8082"     # 服务地址
-LOAN_ENDPOINT="/loan"                # 接口路径
+LOAN_ENDPOINT="/api"                 # 接口路径
 TEST_DATA='{"phone":"your_test_id"}' # 测试数据
 ```
 

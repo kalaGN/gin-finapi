@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 
 REM 配置
 set BASE_URL=http://localhost:8082
-set LOAN_ENDPOINT=/loan
+set LOAN_ENDPOINT=/api
 set TEST_DATA={"phone":"o8wiaiptftdvx0jrt3mm"}
 set RESULTS_DIR=.\results
 set TIMESTAMP=%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2%

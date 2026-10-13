@@ -48,6 +48,10 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 			reject(rescode.ErrMissingParam, rescode.MsgPhoneRequired)
 			return
 		}
+		if len(body.Phone.Value) != 32 && len(body.Phone.Value) != 64 {
+			reject(rescode.ErrInvalidPhone, rescode.GetCodeMsg(rescode.ErrInvalidPhone))
+			return
+		}
 		if !body.Pcode.Set || body.Pcode.Err != nil {
 			reject(rescode.ErrInvalidPcode, rescode.MsgPcodeMustBeNumber)
 			return

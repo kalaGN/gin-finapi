@@ -24,3 +24,23 @@ func TestRegisterAPIRoutes_Health(t *testing.T) {
 		t.Fatalf("body = %q, want %q", response.Body.String(), "ok")
 	}
 }
+
+func TestRegisterAPIRoutes_LoanUsesAPIPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterAPIRoutes(router, func(c *gin.Context) { c.Status(http.StatusNoContent) }, func(c *gin.Context) { c.Next() })
+
+	for _, tt := range []struct {
+		path string
+		want int
+	}{
+		{"/api", http.StatusNoContent},
+		{"/loan", http.StatusNotFound},
+	} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, tt.path, nil))
+		if response.Code != tt.want {
+			t.Fatalf("POST %s status = %d, want %d", tt.path, response.Code, tt.want)
+		}
+	}
+}

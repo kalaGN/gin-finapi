@@ -26,7 +26,7 @@ func TestLoanAuthWithProduct_RejectsBeforeAuthorization(t *testing.T) {
 		{"expired timestamp", func(b map[string]interface{}) { b["timestamp"] = time.Now().Add(-10 * time.Minute).UnixMilli() }, 1005},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
+			body := map[string]interface{}{"phone": "test-identifierrrrrrrrrrrrrrrrrr", "pcode": 10001, "apikey": "key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
 			tc.mutate(body)
 			data, err := json.Marshal(body)
@@ -34,11 +34,11 @@ func TestLoanAuthWithProduct_RejectsBeforeAuthorization(t *testing.T) {
 				t.Fatal(err)
 			}
 			router := gin.New()
-			router.POST("/loan", LoanAuthWithProduct(testKeyReader("key", "secret"), func(context.Context, string, int) error {
+			router.POST("/api", LoanAuthWithProduct(testKeyReader("key", "secret"), func(context.Context, string, int) error {
 				t.Error("rejected authentication reached product authorization")
 				return nil
 			}), func(*gin.Context) { t.Error("rejected authentication reached handler") })
-			req := httptest.NewRequest("POST", "/loan", bytes.NewReader(data))
+			req := httptest.NewRequest("POST", "/api", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -58,7 +58,7 @@ func TestLoanAuthWithProduct_RejectsBeforeAuthorization(t *testing.T) {
 // 产品不参与签名，但修改后的产品仍必须通过授权检查。
 func TestLoanAuthWithProduct_UnsignedProductStillRequiresAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
+	body := map[string]interface{}{"phone": "test-identifierrrrrrrrrrrrrrrrrr", "pcode": 10001, "apikey": "key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
 	body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
 	body["pcode"] = 10002
 	data, err := json.Marshal(body)
@@ -67,14 +67,14 @@ func TestLoanAuthWithProduct_UnsignedProductStillRequiresAuthorization(t *testin
 	}
 	called := false
 	router := gin.New()
-	router.POST("/loan", LoanAuthWithProduct(testKeyReader("key", "secret"), func(_ context.Context, key string, pcode int) error {
+	router.POST("/api", LoanAuthWithProduct(testKeyReader("key", "secret"), func(_ context.Context, key string, pcode int) error {
 		called = true
 		if key != "key" || pcode != 10002 {
 			t.Fatal("产品授权未使用当前请求参数")
 		}
 		return auth.ErrProductDenied
 	}), func(*gin.Context) { t.Error("未授权请求进入 Handler") })
-	req := httptest.NewRequest("POST", "/loan", bytes.NewReader(data))
+	req := httptest.NewRequest("POST", "/api", bytes.NewReader(data))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

@@ -23,7 +23,7 @@
 | --- | --- |
 | `main.go` | 信号 Context、Run、脱敏失败摘要与退出码 |
 | `bootstrap/` | 配置、日志、依赖和路由装配；HTTP 生命周期和资源关闭 |
-| `routes/` | `GET /health`、`POST /loan` 注册 |
+| `routes/` | `GET /health`、`POST /api` 注册 |
 | `app/Http/controllers/loan/` | 已认证请求处理、phone 查询标识、SID 和 HTTP 响应 |
 | `app/loan/`、`app/auth/` | 查询用例、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
 | `app/middleware/` | CORS、日志、进程内限流、LoanAuthWithProduct |
@@ -79,7 +79,7 @@ main.go
   → bootstrap.Run → bootstrap.NewRouter → bootstrap.SetupRoute
   → Recovery → CORS → Logger → 进程内 IP 限流
   → GET /health
-  → POST /loan
+  → POST /api
       → LoanAuthWithProduct 单次 JSON/字段/API Key/时间戳/签名及产品授权校验
       → LoanHandler 归一化查询标识 → app/loan 查询用例
       → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
@@ -129,14 +129,15 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
 | 方法与路径 | 请求 | 当前响应 |
 | --- | --- | --- |
 | `GET /health` | 无业务参数 | HTTP 200，纯文本 `ok` |
-| `POST /loan` | `application/json`；`phone`、`pcode`、`apikey`、`timestamp`、`sign` | JSON：`status`、`msg`、`sid`、`data` |
+| `POST /api` | `application/json`；`phone`、`pcode`、`apikey`、`timestamp`、`sign` | JSON：`status`、`msg`、`sid`、`data` |
 
-- `/loan` 的 `pcode` 只接受 JSON 整数且范围为 10001–99999；`timestamp` 只接受 JSON 整数，
+- `/api` 的 `pcode` 只接受 JSON 整数且范围为 10001–99999；`timestamp` 只接受 JSON 整数，
   使用毫秒并限制为过去 5 分钟内。字符串、小数、指数形式和整数溢出值均拒绝。
-- phone 是非空字符串，不参与签名；32 位十六进制 MD5 截前 20 位查 t，保留大小写。
+- phone 是 32/64 字节的非空字符串，不参与签名；其他非空长度为 400/1002。
+  32 位十六进制 MD5 截前 20 位查 t，保留大小写。
   SHA-256（64 位十六进制）需后续服务映射为原手机号 MD5，目前 TODO，返回 503/9002，不直接查询。
-  既有 20 位及其他历史非空标识保持原值兼容，不解密或对摘要重新哈希。
-- /loan 认证中间件通过 JSON apikey 的 SHA-256 摘要读取 Redis String 凭据并验证启停和到期，Body 上限 64 KiB，只解析一次。
+  不额外要求十六进制字符；32/64 位非十六进制标识原样查询，不解密或对摘要重新哈希；旧 20 位标识拒绝。
+- /api 认证中间件通过 JSON apikey 的 SHA-256 摘要读取 Redis String 凭据并验证启停和到期，Body 上限 64 KiB，只解析一次。
 - 签名验证后，经统一读取层按 API Key+pcode 检查产品授权；未命中读 Redis，每 5 分钟后台刷新，不检查缓存年龄；逐次检查业务到期。
 - 签名当前把 `apikey`、`nonce`、`timestamp` 按 key 排序拼接，加对应凭据 `secret` 后计算
   大写 MD5。该算法存在安全/演进风险，但在确认客户端兼容前不得擅自替换。
@@ -238,7 +239,7 @@ go build ./...
 
 - `.env` 和 `*.ini` 被 `.gitignore` 忽略；`.env.example` 只包含占位值。
 - 启动时校验 Redis 配置、Mongo DSN 和数据库名非空，不再依赖 PHONE_AES_KEY。
-- `/loan` 校验五分钟时间戳、Redis API Key、原值 phone 的 MD5 签名，认证通过后原样查询。
+- `/api` 校验五分钟时间戳、Redis API Key、原值 phone 的 MD5 签名，认证通过后原样查询。
 
 ### 已确认缺口
 

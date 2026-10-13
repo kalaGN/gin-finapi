@@ -13,7 +13,7 @@
 
 ### 测试接口
 1. **Health 接口** (`GET /health`) - 轻量级健康检查接口
-2. **Loan 接口** (`POST /loan`) - 业务接口，包含 MongoDB 查询、Gzip 解压等操作
+2. **Loan 接口**（历史压测为 `POST /loan`；当前接口为 `POST /api`）- 包含 MongoDB 查询、Gzip 解压等操作；历史结果不代表当前契约的性能。
 
 ---
 

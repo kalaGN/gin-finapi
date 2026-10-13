@@ -23,7 +23,7 @@ const testSecret = "test-secret"
 
 func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
 	for _, tt := range []struct{ phone, query string }{
-		{"r707qyr0k2xmucjp7lz0", "r707qyr0k2xmucjp7lz0"},
+		{"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"},
 		{"0123456789abcdef0123456789abcdef", "0123456789abcdef0123"},
 		{"0123456789ABCDEF0123456789ABCDEF", "0123456789ABCDEF0123"},
 	} {
@@ -82,14 +82,14 @@ func TestCreate_RejectsNonIntegerNumbers(t *testing.T) {
 		body       string
 		wantStatus int
 	}{
-		{"decimal pcode", `{"phone":"phone","pcode":10001.5,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"string pcode", `{"phone":"phone","pcode":"10001","apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"exponent pcode", `{"phone":"phone","pcode":1e4,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"overflow pcode", `{"phone":"phone","pcode":9223372036854775808,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"out of range pcode", `{"phone":"phone","pcode":100000,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
-		{"decimal timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":1.5,"sign":"x"}`, rescode.ErrInvalidTimestamp},
-		{"string timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":"1","sign":"x"}`, rescode.ErrInvalidTimestamp},
-		{"overflow timestamp", `{"phone":"phone","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":9223372036854775808,"sign":"x"}`, rescode.ErrInvalidTimestamp},
+		{"decimal pcode", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":10001.5,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"string pcode", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":"10001","apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"exponent pcode", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":1e4,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"overflow pcode", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":9223372036854775808,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"out of range pcode", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":100000,"apikey":"key","nonce": "3093", "timestamp":` + jsonNumber(timestamp) + `,"sign":"x"}`, rescode.ErrInvalidPcode},
+		{"decimal timestamp", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":1.5,"sign":"x"}`, rescode.ErrInvalidTimestamp},
+		{"string timestamp", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":"1","sign":"x"}`, rescode.ErrInvalidTimestamp},
+		{"overflow timestamp", `{"phone":"phonerrrrrrrrrrrrrrrrrrrrrrrrrrr","pcode":10001,"apikey":"key","nonce": "3093", "timestamp":9223372036854775808,"sign":"x"}`, rescode.ErrInvalidTimestamp},
 	}
 
 	for _, tt := range tests {
@@ -205,7 +205,7 @@ func TestCreate_HandlesSIDGenerationFailure(t *testing.T) {
 func performCreate(t *testing.T, body string, query QueryFunc, sid SIDFunc, secret string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	request := httptest.NewRequest(http.MethodPost, "/loan", strings.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, "/api", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler, err := NewLoanHandler(query, sid, nil)
@@ -222,7 +222,7 @@ func validRequestBody(t *testing.T) string {
 	t.Helper()
 	timestamp := time.Now().UnixMilli()
 	params := map[string]interface{}{
-		"phone":  "phone",
+		"phone":  "phonerrrrrrrrrrrrrrrrrrrrrrrrrrr",
 		"pcode":  10001,
 		"apikey": "key",
 		"nonce":  "3093", "timestamp": timestamp,
@@ -263,7 +263,7 @@ func TestLoanHandler_UsesOriginalPhoneAndRequestContext(t *testing.T) {
 	called := false
 	handler, err := NewLoanHandler(func(ctx context.Context, phone string, pcode int) (map[string]int, error) {
 		called = true
-		if phone != "phone" || !errors.Is(ctx.Err(), context.Canceled) {
+		if phone != "phonerrrrrrrrrrrrrrrrrrrrrrrrrrr" || !errors.Is(ctx.Err(), context.Canceled) {
 			t.Fatal("query did not receive original phone and canceled context")
 		}
 		return nil, ctx.Err()
@@ -275,7 +275,7 @@ func TestLoanHandler_UsesOriginalPhoneAndRequestContext(t *testing.T) {
 	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("key", testSecret), nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	req := httptest.NewRequest("POST", "/loan", strings.NewReader(validRequestBody(t))).WithContext(ctx)
+	req := httptest.NewRequest("POST", "/api", strings.NewReader(validRequestBody(t))).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -295,9 +295,9 @@ func TestLoanHandler_FailsClosedWithoutMiddleware(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := gin.New()
-	r.POST("/loan", handler.Create)
+	r.POST("/api", handler.Create)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("POST", "/loan", strings.NewReader(validRequestBody(t))))
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api", strings.NewReader(validRequestBody(t))))
 	if w.Code != 401 {
 		t.Fatalf("HTTP = %d", w.Code)
 	}

@@ -53,7 +53,7 @@ func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req := httptest.NewRequest(http.MethodPost, "/loan", strings.NewReader(string(data)))
+			req := httptest.NewRequest(http.MethodPost, "/api", strings.NewReader(string(data)))
 			req.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, req)

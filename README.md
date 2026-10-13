@@ -2,6 +2,18 @@
 
 基于 Gin Web 框架构建的 Go 语言 API 服务项目。
 
+## 版本 v1.0.1（2026-10-13）
+
+本次按维护者要求采用补丁版本号；包含客户端不兼容调整，并非完全向后兼容的补丁。
+
+- 业务接口统一为 `POST /api`，不再注册 `POST /loan`。
+- phone 仅接受 32/64 字节；其他非空长度返回 HTTP 400/1002，旧短标识客户端须调整。
+- 纳入 `.air.toml` 本地热重载配置，未将 Air 加入应用依赖。
+- 当前签名仅包含 apikey、nonce、timestamp，附对应凭据 secret 后计算 MD5；旧签名客户端须同步。
+- 飞书报警继续暂缓；SHA-256 转换服务仍未接入，64 位十六进制 phone 返回 503/9002。
+
+应用版本由 Git Tag 管理，Go 与依赖版本仍由 `go.mod`、`go.sum` 管理；Tag 不代表已部署。
+
 ## 技术栈
 
 - **Go 1.24.0 / toolchain 1.24.10**
@@ -128,9 +140,9 @@ go build -o gin-finapi main.go
 curl http://localhost:8082/health
 
 # 数据接口
-curl -X POST http://localhost:8082/loan \
+curl -X POST http://localhost:8082/api \
   -H "Content-Type: application/json" \
-  -d '{"phone":"r707qyr0k2xmucjp7lz0","pcode":10001,"apikey":"your_api_key","nonce":"3093","timestamp":1730000000000,"sign":"UPPERCASE_MD5_32_CHARS"}'
+  -d '{"phone":"0123456789abcdef0123456789abcdef","pcode":10001,"apikey":"your_api_key","nonce":"3093","timestamp":1730000000000,"sign":"UPPERCASE_MD5_32_CHARS"}'
 ```
 
 ## API 接口
@@ -146,7 +158,7 @@ GET /health
 ### 数据接口
 
 ```
-POST /loan
+POST /api
 Content-Type: application/json
 ```
 
@@ -154,7 +166,7 @@ Content-Type: application/json
 
 ```json
 {
-  "phone": "r707qyr0k2xmucjp7lz0",
+  "phone": "0123456789abcdef0123456789abcdef",
   "pcode": 10001,
   "apikey": "your_api_key",
   "nonce": "3093",
@@ -163,9 +175,10 @@ Content-Type: application/json
 }
 ```
 
-phone 是非空字符串：完整 32 位十六进制 MD5 截前 20 位查 Mongo t，保留大小写；
-既有 20 位查询标识继续原样查询。64 位十六进制 SHA-256 的转换服务尚未接入（TODO），
-当前返回 HTTP 503 + 9002，不直接查库或对摘要再哈希。其他历史非空值沿用原值兼容。
+phone 必须是长度为 32 或 64 字节的非空字符串，其他非空长度返回 HTTP 400/1002；旧 20 位标识不再接受。
+完整 32 位十六进制 MD5 截前 20 位查 Mongo t，保留大小写；64 位十六进制 SHA-256
+转换服务尚未接入（TODO），返回 HTTP 503/9002，不直接查库或对摘要再哈希。
+本次仅限制长度，不要求十六进制字符；32/64 位非十六进制字符串仍原样查询。
 签名对 apikey、nonce、timestamp 按 key 排序拼接，加该 API Key 对应的 secret 后做大写 MD5：
 
 ```text
@@ -238,7 +251,7 @@ Value 为 `{"version":1,"status":1,"expires_at":0}`。凭据、授权和产品�
 
 ### 产品变量映射
 
-开启缓存时，`/loan` 按 `pcode` 读内存，未命中执行 `GET gin-finapi:product-map:v1:<pcode>`；关闭时每次 GET。value 是字段名到 CSV 索引的 JSON。
+开启缓存时，`/api` 按 `pcode` 读内存，未命中执行 `GET gin-finapi:product-map:v1:<pcode>`；关闭时每次 GET。value 是字段名到 CSV 索引的 JSON。
 Redis 已是业务必需依赖；客户端懒连接，`/health` 不检查 Redis/Mongo。
 仅在独立测试环境人工确认后准备如下映射，应用不自动写入或覆盖配置：
 
@@ -270,7 +283,7 @@ Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除�
 
 1. 在 `app/Http/controllers/` 创建控制器
 2. 在 main 装配依赖并向 `routes/api.go` 注入 Handler
-3. 在业务路由注册认证中间件；`/loan` 必须挂载 LoanAuth
+3. 在业务路由注册认证中间件；`/api` 必须挂载 LoanAuth
 
 ### 添加中间件
 
@@ -280,7 +293,7 @@ Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除�
 router.Use(middleware.YourMiddleware())
 ```
 
-`/loan` 的认证与产品授权由 `bootstrap/route.go` 注入
+`/api` 的认证与产品授权由 `bootstrap/route.go` 注入
 `middleware.LoanAuthWithProduct`；不要在路由层读取静态密钥或绕过产品授权。
 
 ## Docker 部署
@@ -328,7 +341,7 @@ MIT License
 
 ### Redis API Key 凭据
 
-`POST /loan` 每次通过 GET 读取
+`POST /api` 每次通过 GET 读取
 `gin-finapi:auth:apikey:v1:<sha256(apikey)>`（摘要为原始 Key 的小写十六进制 SHA-256）。
 String Value 严格使用以下 JSON，示例仅为占位：
 

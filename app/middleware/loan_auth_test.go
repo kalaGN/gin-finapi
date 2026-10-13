@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,46 @@ import (
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
+
+func TestLoanAuth_PhoneLength(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, size := range []int{1, 20, 31, 32, 33, 63, 64, 65} {
+		t.Run(fmt.Sprintf("长度%d", size), func(t *testing.T) {
+			body := map[string]interface{}{"phone": strings.Repeat("r", size), "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
+			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
+			data, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reads, grants, handled := 0, 0, 0
+			router := gin.New()
+			router.POST("/api", LoanAuthWithProduct(func(context.Context, string) (auth.Credential, error) {
+				reads++
+				return auth.Credential{Secret: "secret"}, nil
+			}, func(context.Context, string, int) error { grants++; return nil }), func(c *gin.Context) { handled++; c.Status(204) })
+			req := httptest.NewRequest("POST", "/api", bytes.NewReader(data))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if size == 32 || size == 64 {
+				if w.Code != 204 || reads != 1 || grants != 1 || handled != 1 {
+					t.Fatalf("HTTP=%d 读取=%d 授权=%d Handler=%d", w.Code, reads, grants, handled)
+				}
+				return
+			}
+			if w.Code != 400 {
+				t.Fatalf("非法长度应被拒绝，HTTP=%d", w.Code)
+			}
+			var result request.Response
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != 400 || result.Status != rescode.ErrInvalidPhone || reads != 0 || grants != 0 || handled != 0 {
+				t.Fatalf("HTTP=%d 业务码=%d 读取=%d 授权=%d Handler=%d", w.Code, result.Status, reads, grants, handled)
+			}
+		})
+	}
+}
 
 func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -43,13 +84,13 @@ func TestLoanAuth_RejectsBeforeHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := map[string]interface{}{"phone": "ciphertext", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
+			b := map[string]interface{}{"phone": "ciphertextrrrrrrrrrrrrrrrrrrrrrr", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			b["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": b["apikey"], "nonce": b["nonce"], "timestamp": b["timestamp"]}, "secret")
 			tt.mutate(b)
 			data, _ := json.Marshal(b)
 			r := gin.New()
-			r.POST("/loan", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
-			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
+			r.POST("/api", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
+			req := httptest.NewRequest(http.MethodPost, "/api", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
@@ -79,15 +120,15 @@ func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
 		{"invalid key", "apikey", "unknown-key", 2001, "apikey无效"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli(), "sign": "test-sign"}
+			body := map[string]interface{}{"phone": "test-identifierrrrrrrrrrrrrrrrrr", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli(), "sign": "test-sign"}
 			body[tc.field] = tc.value
 			data, err := json.Marshal(body)
 			if err != nil {
 				t.Fatal(err)
 			}
 			router := gin.New()
-			router.POST("/loan", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
-			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
+			router.POST("/api", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) { t.Fatal("unauthenticated handler called") })
+			req := httptest.NewRequest(http.MethodPost, "/api", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -104,7 +145,7 @@ func TestLoanAuth_PreservesErrorMessages(t *testing.T) {
 
 func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
+	body := map[string]interface{}{"phone": "test-identifierrrrrrrrrrrrrrrrrr", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 	body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -121,13 +162,13 @@ func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			router := gin.New()
-			router.POST("/loan", LoanAuthWithProduct(testKeyReader("key", "secret"), func(_ context.Context, key string, pcode int) error {
+			router.POST("/api", LoanAuthWithProduct(testKeyReader("key", "secret"), func(_ context.Context, key string, pcode int) error {
 				if key != "key" || pcode != 10001 {
 					t.Fatalf("product lookup key=%q pcode=%d", key, pcode)
 				}
 				return tc.err
 			}), func(c *gin.Context) { c.Status(http.StatusNoContent) })
-			req := httptest.NewRequest(http.MethodPost, "/loan", bytes.NewReader(data))
+			req := httptest.NewRequest(http.MethodPost, "/api", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -140,7 +181,7 @@ func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 
 func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	valid := map[string]interface{}{"phone": "ciphertext", "pcode": 99999, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
+	valid := map[string]interface{}{"phone": "ciphertextrrrrrrrrrrrrrrrrrrrrrr", "pcode": 99999, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 	valid["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": valid["apikey"], "nonce": valid["nonce"], "timestamp": valid["timestamp"]}, "secret")
 	data, _ := json.Marshal(valid)
 	for _, tt := range []struct {
@@ -157,14 +198,14 @@ func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			r.POST("/loan", testLoanAuth(testKeyReader(tt.key, tt.secret)), func(c *gin.Context) {
+			r.POST("/api", testLoanAuth(testKeyReader(tt.key, tt.secret)), func(c *gin.Context) {
 				body, ok := request.Authenticated(c)
-				if !ok || body.Phone.Value != "ciphertext" {
+				if !ok || body.Phone.Value != "ciphertextrrrrrrrrrrrrrrrrrrrrrr" {
 					t.Fatal("authenticated request not available")
 				}
 				c.Status(204)
 			})
-			req := httptest.NewRequest("POST", "/loan", strings.NewReader(tt.body))
+			req := httptest.NewRequest("POST", "/api", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
@@ -182,7 +223,7 @@ func TestLogger_DoesNotCaptureSensitivePayloads(t *testing.T) {
 	log.SetOutput(&output)
 	r := gin.New()
 	r.Use(Logger(log))
-	r.POST("/loan", func(c *gin.Context) {
+	r.POST("/api", func(c *gin.Context) {
 		var b map[string]string
 		if err := c.ShouldBindJSON(&b); err != nil {
 			t.Fatal(err)
@@ -190,7 +231,7 @@ func TestLogger_DoesNotCaptureSensitivePayloads(t *testing.T) {
 		c.JSON(200, b)
 	})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("POST", "/loan?apikey=query-secret", strings.NewReader(`{"phone":"sensitive-phone","apikey":"sensitive-key","sign":"sensitive-sign"}`)))
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api?apikey=query-secret", strings.NewReader(`{"phone":"sensitive-phone","apikey":"sensitive-key","sign":"sensitive-sign"}`)))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "sensitive-phone") {
 		t.Fatal("logger altered request or response")
 	}
@@ -217,19 +258,19 @@ func TestLoanAuth_RedisCredentials(t *testing.T) {
 		{"unavailable", "key-a", "secret-a", appredis.ErrAuthUnavailable, 503, 9002},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": tc.key, "nonce": "3093", "timestamp": time.Now().UnixMilli()}
+			body := map[string]interface{}{"phone": "test-identifierrrrrrrrrrrrrrrrrr", "pcode": 10001, "apikey": tc.key, "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, tc.signSecret)
 			data, _ := json.Marshal(body)
 			called := false
 			router := gin.New()
-			router.POST("/loan", testLoanAuth(func(ctx context.Context, key string) (appredis.APIKeyCredential, error) {
+			router.POST("/api", testLoanAuth(func(ctx context.Context, key string) (appredis.APIKeyCredential, error) {
 				if ctx == nil || key != tc.key {
 					t.Fatal("incorrect lookup")
 				}
 				secrets := map[string]string{"key-a": "secret-a", "key-b": "secret-b"}
 				return appredis.APIKeyCredential{Version: 1, Status: 1, Secret: secrets[key]}, tc.readErr
 			}), func(c *gin.Context) { called = true; c.Status(204) })
-			req := httptest.NewRequest("POST", "/loan", bytes.NewReader(data))
+			req := httptest.NewRequest("POST", "/api", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, req)
@@ -257,7 +298,7 @@ func TestLoanAuth_NonceSignatureContract(t *testing.T) {
 		http, code int
 	}{
 		{"valid", nil, 204, 0},
-		{"phone excluded", func(b map[string]interface{}) { b["phone"] = "another-identifier" }, 204, 0},
+		{"phone excluded", func(b map[string]interface{}) { b["phone"] = "another-identifierrrrrrrrrrrrrrr" }, 204, 0},
 		{"pcode excluded", func(b map[string]interface{}) { b["pcode"] = 10002 }, 204, 0},
 		{"previous five field signature", func(b map[string]interface{}) { b["sign"] = utils.GenerateSign(b, "secret") }, 400, 2002},
 		{"leading zeros", func(b map[string]interface{}) {
@@ -289,21 +330,21 @@ func TestLoanAuth_NonceSignatureContract(t *testing.T) {
 		}, 400, 2002},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := map[string]interface{}{"phone": "test-identifier", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
+			body := map[string]interface{}{"phone": "test-identifierrrrrrrrrrrrrrrrrr", "pcode": 10001, "apikey": "key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "secret")
 			if tc.mutate != nil {
 				tc.mutate(body)
 			}
 			data, _ := json.Marshal(body)
 			router := gin.New()
-			router.POST("/loan", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) {
+			router.POST("/api", testLoanAuth(testKeyReader("key", "secret")), func(c *gin.Context) {
 				_, ok := request.Authenticated(c)
 				if !ok {
 					t.Fatal("missing authenticated request")
 				}
 				c.Status(204)
 			})
-			req := httptest.NewRequest("POST", "/loan?nonce=3093", bytes.NewReader(data))
+			req := httptest.NewRequest("POST", "/api?nonce=3093", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
