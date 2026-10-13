@@ -23,7 +23,9 @@ const testSecret = "test-secret"
 
 func TestLoanHandler_UsesPhoneLookupKey(t *testing.T) {
 	for _, tt := range []struct{ phone, query string }{
-		{"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"},
+		{"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrrrrrrr"},
+		{"r707qyr0k2xmucjp7lz0123456789012", "r707qyr0k2xmucjp7lz0"},
+		{strings.Repeat("r", 64), strings.Repeat("r", 64)},
 		{"0123456789abcdef0123456789abcdef", "0123456789abcdef0123"},
 		{"0123456789ABCDEF0123456789ABCDEF", "0123456789ABCDEF0123"},
 	} {
@@ -258,13 +260,13 @@ func jsonNumber(value int64) string {
 	return strconv.FormatInt(value, 10)
 }
 
-func TestLoanHandler_UsesOriginalPhoneAndRequestContext(t *testing.T) {
+func TestLoanHandler_UsesLookupKeyAndRequestContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	called := false
 	handler, err := NewLoanHandler(func(ctx context.Context, phone string, pcode int) (map[string]int, error) {
 		called = true
-		if phone != "phonerrrrrrrrrrrrrrrrrrrrrrrrrrr" || !errors.Is(ctx.Err(), context.Canceled) {
-			t.Fatal("query did not receive original phone and canceled context")
+		if phone != "phone"+strings.Repeat("r", 15) || !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatal("query did not receive lookup key and canceled context")
 		}
 		return nil, ctx.Err()
 	}, successfulSID, nil)

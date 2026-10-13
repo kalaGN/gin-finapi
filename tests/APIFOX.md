@@ -40,10 +40,10 @@ String Key `gin-finapi:product-map:v1:10001` 为以下 JSON，确保 Redis 正�
 
 每个请求先读取产品映射，再查 Mongo；不会自动回退默认映射。Mongo Fixture：
 
-- short_phone：保留环境变量名称，值改为32位非十六进制字符串；t等于该值，v为BSON二进制 gzip("1,2,3,4,5,6")。
+- short_phone：保留环境变量名称，值为32位非十六进制字符串；t等于前20位，v为BSON二进制 gzip("1,2,3,4,5,6")。
 - md5_phone：t为其前20位，v同上。
-- missing_phone：32位非十六进制字符串，确保没有匹配文档。
-- corrupt_phone：32位非十六进制字符串，t等于该值，v为非gzip二进制。
+- missing_phone：32位非十六进制字符串，确保前20位没有匹配文档。
+- corrupt_phone：32位非十六进制字符串，t等于前20位，v为非gzip二进制。
 服务的 MONGODB_DATABASE / MONGODB_COLLECTION 必须指向该独立测试数据。
 禁止运行 cmd/init_mongo.go 为这些用例准备数据；它会删除重建集合。
 

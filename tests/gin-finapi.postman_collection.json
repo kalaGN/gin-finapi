@@ -723,7 +723,7 @@
               }
             },
             "url": "{{base_url}}/api",
-            "description": "需要 fixture_short（32位非十六进制标识）：Mongo t=short_phone，v=gzip('1,2,3,4,5,6')。"
+            "description": "需要 fixture_short（32位非十六进制标识）：Mongo t=short_phone的前20位，v=gzip('1,2,3,4,5,6')。"
           },
           "event": [
             {

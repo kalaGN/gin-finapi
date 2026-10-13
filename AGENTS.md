@@ -13,7 +13,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - 路由：`routes/api.go`；中间件：`app/middleware/`。
 - 核心处理：LoanHandler → `app/services/product_query.go` → `pkg/mongo/store.go`（实例配置与客户端）。
 - `app/auth/` 定义认证凭据和错误；Handler/认证中间件不直接引用存储包。
-- `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；MD5 截前 20 位查 t。
+- `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；所有 32 位字符串截前 20 位查 t。
 - JSON nonce 为必填非空字符串；签名字段为 apikey、nonce、timestamp，排序拼接后附 secret 做 MD5；无防重放去重。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
 - `/api` 凭据来自 Redis String `gin-finapi:auth:apikey:v1:<sha256(apikey)>`，每 Key 独立 secret、status、expires_at；不读取 API_KEY/SECRET_KEY，不自动写入。

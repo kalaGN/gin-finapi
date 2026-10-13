@@ -20,18 +20,18 @@ type SIDFunc func(string, int) (string, error)
 var errPhoneConversionUnavailable = errors.New("SHA-256 phone conversion service is not connected")
 
 func phoneLookupKey(phone string) (string, error) {
-	if len(phone) == 32 || len(phone) == 64 {
+	if len(phone) == 32 {
+		return phone[:20], nil
+	}
+	if len(phone) == 64 {
 		if _, err := hex.DecodeString(phone); err == nil {
-			if len(phone) == 32 {
-				return phone[:20], nil
-			}
 			// TODO: 接入后续手机号转换服务，将 SHA-256(phone) 映射为 MD5(phone)，
 			// 再取 MD5 的前 20 位作为查询标识。
 			// 不得对 SHA-256 字符串重新哈希，否则得到的查询标识与原手机号不一致。
 			return "", errPhoneConversionUnavailable
 		}
 	}
-	// 兼容已有的截短标识和历史非空查询值，保持原样查询。
+	// 其余标识保持原样，公开请求的长度已由认证中间件校验。
 	return phone, nil
 }
 
@@ -66,7 +66,7 @@ func (h *LoanHandler) Create(c *gin.Context) {
 		request.JSON(c, http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 		return
 	}
-	// 认证使用请求中的完整 phone，转换仅影响数据库查询标识。
+	// 标识归一化只影响数据库查询，phone 不参与签名。
 	result, err := h.query(c.Request.Context(), queryKey, int(body.Pcode.Value))
 	if err != nil {
 		h.writeQueryError(c, err)

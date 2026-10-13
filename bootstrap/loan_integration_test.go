@@ -81,7 +81,7 @@ func TestLoanIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	phone := "integration-fixturerrrrrrrrrrrrr"
-	if _, err := db.Collection("data_20251101_0").InsertOne(ctx, bson.M{"t": phone, "v": payload.Bytes()}); err != nil {
+	if _, err := db.Collection("data_20251101_0").InsertOne(ctx, bson.M{"t": phone[:20], "v": payload.Bytes()}); err != nil {
 		t.Fatal(err)
 	}
 	const pcode = 98765
