@@ -12,6 +12,7 @@ import (
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
+	applogger "github.com/kalaGN/gin-finapi/pkg/logger"
 	"github.com/kalaGN/gin-finapi/pkg/mongo"
 	appredis "github.com/kalaGN/gin-finapi/pkg/redis"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
@@ -42,8 +43,12 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	if err != nil {
 		return nil, nil, errors.Join(err, store.Close(context.Background()), keys.Close(), maps.Close())
 	}
+	requestLog, closeRequestLog, err := applogger.NewRequestLogger(log, cfg.RequestLog, cfg.ChargeRedis)
+	if err != nil {
+		return nil, nil, errors.Join(err, reader.Close(context.Background()), store.Close(context.Background()), keys.Close(), maps.Close())
+	}
 	closeDependencies := func(ctx context.Context) error {
-		return errors.Join(reader.Close(ctx), store.Close(ctx), keys.Close(), maps.Close())
+		return errors.Join(reader.Close(ctx), store.Close(ctx), keys.Close(), maps.Close(), closeRequestLog(ctx))
 	}
 	query, err := services.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
 		mapping, err := reader.LoadProductMap(ctx, pcode)
@@ -60,7 +65,7 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
 	}
 	router := gin.New()
-	SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit)
+	SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit, requestLog)
 	reader.Start(func(stats configdata.RefreshStats) {
 		fields := logrus.Fields{"checked": stats.Checked, "failed": stats.Failed, "duration_ms": stats.Duration.Milliseconds()}
 		if stats.Failed > 0 {
@@ -93,10 +98,14 @@ func queryError(err error) error {
 }
 
 // SetupRoute 路由初始化
-func SetupRoute(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc, log *logrus.Logger, limit config.RateLimitConfig) {
+func SetupRoute(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc, log *logrus.Logger, limit config.RateLimitConfig, requestLogs ...*logrus.Logger) {
 
 	// 注册全局中间件
-	registerGlobalMiddleWare(router, log, limit)
+	requestLog := log
+	if len(requestLogs) > 0 {
+		requestLog = requestLogs[0]
+	}
+	registerGlobalMiddleWare(router, requestLog, limit)
 
 	//  注册 API 路由
 	routes.RegisterAPIRoutes(router, loanHandler, loanAuth)

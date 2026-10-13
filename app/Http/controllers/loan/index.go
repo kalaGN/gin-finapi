@@ -52,18 +52,18 @@ func NewLoanHandler(query QueryFunc, sid SIDFunc, log *logrus.Logger) (*LoanHand
 func (h *LoanHandler) Create(c *gin.Context) {
 	body, ok := request.Authenticated(c)
 	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, CommonRes{Status: rescode.ErrInvalidApikey, Msg: rescode.GetCodeMsg(rescode.ErrInvalidApikey)})
+		request.AbortWithStatusJSON(c, http.StatusUnauthorized, CommonRes{Status: rescode.ErrInvalidApikey, Msg: rescode.GetCodeMsg(rescode.ErrInvalidApikey)})
 		return
 	}
 	queryKey, err := phoneLookupKey(body.Phone.Value)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
+		request.JSON(c, http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 		return
 	}
 	sid, err := h.generateSID("100", 29)
 	if err != nil {
 		h.logInternalError("generate SID")
-		c.JSON(http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
+		request.JSON(c, http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 		return
 	}
 	// 认证使用请求中的完整 phone，转换仅影响数据库查询标识。
@@ -72,22 +72,22 @@ func (h *LoanHandler) Create(c *gin.Context) {
 		h.writeQueryError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, CommonRes{Status: rescode.SuccessCode, Msg: rescode.GetCodeMsg(rescode.SuccessCode), Sid: sid, Data: result})
+	request.JSON(c, http.StatusOK, CommonRes{Status: rescode.SuccessCode, Msg: rescode.GetCodeMsg(rescode.SuccessCode), Sid: sid, Data: result})
 }
 
 func (h *LoanHandler) writeQueryError(c *gin.Context, err error) {
 	h.logInternalError("query loan data")
 	switch {
 	case errors.Is(err, services.ErrProductMapping):
-		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrProductException, Msg: rescode.GetCodeMsg(rescode.ErrProductException)})
+		request.JSON(c, http.StatusOK, CommonRes{Status: rescode.ErrProductException, Msg: rescode.GetCodeMsg(rescode.ErrProductException)})
 	case errors.Is(err, services.ErrUnavailable):
-		c.JSON(http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
+		request.JSON(c, http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 	case errors.Is(err, services.ErrNotFound):
-		c.JSON(http.StatusOK, CommonRes{Status: rescode.ErrDataNotFound, Msg: rescode.GetCodeMsg(rescode.ErrDataNotFound)})
+		request.JSON(c, http.StatusOK, CommonRes{Status: rescode.ErrDataNotFound, Msg: rescode.GetCodeMsg(rescode.ErrDataNotFound)})
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-		c.JSON(http.StatusGatewayTimeout, CommonRes{Status: rescode.ErrTimeout, Msg: rescode.GetCodeMsg(rescode.ErrTimeout)})
+		request.JSON(c, http.StatusGatewayTimeout, CommonRes{Status: rescode.ErrTimeout, Msg: rescode.GetCodeMsg(rescode.ErrTimeout)})
 	default:
-		c.JSON(http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
+		request.JSON(c, http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 	}
 }
 

@@ -318,6 +318,27 @@ docker run -d \
 
 项目使用 Logrus 进行结构化日志记录：
 
+请求完成日志增加整数 `success` 和 `charge`，按响应业务 `status` 计算：
+`0 → success=1, charge=1`；`3001 → success=1, charge=0`；其他或无业务状态均为 `0/0`。
+这不是 HTTP 状态码判断，也不执行实际扣费。仅记录状态元信息，不记录或缓存响应体。
+
+请求完成日志由后台 worker 异步输出，可在 `.env` 中选择：
+
+```env
+REQUEST_LOG_OUTPUT=file
+REQUEST_LOG_FILE=request.log
+REQUEST_LOG_QUEUE_SIZE=10000
+```
+
+改为 `REQUEST_LOG_OUTPUT=redis` 时，需另设 `CHARGE_REDIS_ADDR`，并按需要配置
+`CHARGE_REDIS_PASSWORD、CHARGE_REDIS_DB、CHARGE_REDIS_POOL_SIZE、CHARGE_REDIS_TIMEOUT`。
+该连接与认证/产品映射 Redis 独立，不自动复用或回退。每条请求日志为 JSON，
+使用 `RPUSH request_log` 追加到 List；后续消费者可从左侧消费，本项目暂不实现消费任务。
+Redis 首次失败后重试两次，共最多三次尝试；仍失败则丢弃并写脱敏内部错误日志。
+队列满不阻塞客户响应，丢弃并由后台汇总错误；启动/内部错误日志仍保留原输出方式。
+关闭在现有预算内尽力排空。内存队列允许丢失，网络超时重试可能重复，不能作为唯一可靠计费账本。
+不自动裁剪 List 或设置 TTL；需管理消费速度、Redis 容量和文件轮转。修改配置后重启生效。
+
 - **开发环境**：文本格式，Debug 级别
 - **生产环境**：JSON 格式，Info 级别
 
@@ -328,8 +349,10 @@ docker run -d \
   "level": "info",
   "method": "GET",
   "path": "/health",
-  "status": 200,
-  "duration": 0,
+  "http_status": 200,
+  "duration_ms": 0,
+  "success": 0,
+  "charge": 0,
   "time": "2025-11-14 23:35:23",
   "msg": "Request completed"
 }

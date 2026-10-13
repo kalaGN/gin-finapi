@@ -9,11 +9,13 @@ import (
 
 // AppConfig 应用配置结构
 type AppConfig struct {
-	Server    ServerConfig
-	MongoDB   MongoDBConfig
-	Redis     RedisConfig
-	RateLimit RateLimitConfig
-	Cache     CacheConfig
+	Server      ServerConfig
+	MongoDB     MongoDBConfig
+	Redis       RedisConfig
+	RateLimit   RateLimitConfig
+	Cache       CacheConfig
+	RequestLog  RequestLogConfig
+	ChargeRedis RedisConfig
 }
 
 // RateLimitConfig configures the existing per-process, per-IP limiter.
@@ -61,6 +63,10 @@ var Config *AppConfig
 
 // Load 从环境变量加载配置
 func Load() error {
+	requestLog, chargeRedis, err := loadRequestLog()
+	if err != nil {
+		return err
+	}
 	cache, err := loadCacheConfig()
 	if err != nil {
 		return err
@@ -101,8 +107,10 @@ func Load() error {
 			PoolSize: getEnvIntWithDefault("REDIS_POOL_SIZE", 10),
 			Timeout:  redisTimeout,
 		},
-		RateLimit: rateLimit,
-		Cache:     cache,
+		RateLimit:   rateLimit,
+		Cache:       cache,
+		RequestLog:  requestLog,
+		ChargeRedis: chargeRedis,
 	}
 
 	return nil
@@ -128,6 +136,12 @@ func getEnvIntWithDefault(key string, defaultValue int) int {
 
 // Validate 验证配置
 func (c *AppConfig) Validate() error {
+	if err := c.RequestLog.Validate(); err != nil {
+		return err
+	}
+	if c.RequestLog.Output == "redis" && (c.ChargeRedis.Addr == "" || c.ChargeRedis.DB < 0 || c.ChargeRedis.PoolSize <= 0 || c.ChargeRedis.Timeout <= 0) {
+		return fmt.Errorf("invalid charge Redis configuration")
+	}
 	if err := c.Cache.WithDefaults().Validate(); err != nil {
 		return err
 	}

@@ -24,6 +24,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - 产品映射：`pkg/redis/product_map.go`；缺失或无效为 200/6001，Redis 故障为 503/9002。
 - Redis 使用既有 REDIS_* 配置，新增 `REDIS_TIMEOUT` 默认 1s；禁止自动写入或覆盖产品映射。
 - 认证与产品映射各自拥有一个 Redis 池，REDIS_POOL_SIZE 是每池参数，不是应用总连接上限。
+- 请求日志：REQUEST_LOG_OUTPUT=file|redis，后台有界队列；redis 使用独立 CHARGE_REDIS_* 池，RPUSH request_log，失败重试两次后丢弃；尚无消费者。
 - 测试数据 CLI：`cmd/init_mongo.go`。它会删除并重建 16 个集合，未经明确授权不得运行。
 - Redis 初始化：`cmd/init_redis.go`，SET NX 写入产品映射；`-migrate-map` 显式迁移旧 Hash，保留源及已有目标，授权后才可运行。
 - 依赖锁定：`go.mod`、`go.sum`。CI 为最小 GitHub Actions 门禁

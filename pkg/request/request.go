@@ -11,12 +11,35 @@ import (
 )
 
 const contextKey = "gin-finapi.authenticated-loan-request"
+const responseStatusKey = "gin-finapi.response-status"
 
 type Response struct {
 	Status int            `json:"status"`
 	Msg    string         `json:"msg"`
 	Sid    string         `json:"sid"`
 	Data   map[string]int `json:"data"`
+}
+
+// JSON 记录安全的业务状态元信息，不保存响应体。
+func JSON(c *gin.Context, httpStatus int, response Response) {
+	c.Set(responseStatusKey, response.Status)
+	c.JSON(httpStatus, response)
+}
+
+// AbortWithStatusJSON 终止处理链并写入带业务状态元信息的响应。
+func AbortWithStatusJSON(c *gin.Context, httpStatus int, response Response) {
+	c.Abort()
+	JSON(c, httpStatus, response)
+}
+
+// ResponseStatus 区分业务成功 0 与没有业务状态的响应。
+func ResponseStatus(c *gin.Context) (int, bool) {
+	value, exists := c.Get(responseStatusKey)
+	if !exists {
+		return 0, false
+	}
+	status, ok := value.(int)
+	return status, ok
 }
 
 type Request struct {

@@ -22,7 +22,7 @@ func LoanAuthWithProduct(load func(context.Context, string) (auth.Credential, er
 func loanAuth(load func(context.Context, string) (auth.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reject := func(code int, message string) {
-			c.AbortWithStatusJSON(http.StatusBadRequest, request.Response{Status: code, Msg: message})
+			request.AbortWithStatusJSON(c, http.StatusBadRequest, request.Response{Status: code, Msg: message})
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 		var body request.Request
@@ -73,7 +73,7 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 			return
 		}
 		if load == nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
+			request.AbortWithStatusJSON(c, http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 			return
 		}
 		credential, err := load(c.Request.Context(), body.Apikey)
@@ -82,7 +82,7 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 			return
 		}
 		if err != nil || credential.Secret == "" {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
+			request.AbortWithStatusJSON(c, http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 			return
 		}
 		if !body.Timestamp.Set || body.Timestamp.Err != nil {
@@ -108,10 +108,10 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 		if loadProduct != nil {
 			if err := loadProduct(c.Request.Context(), body.Apikey, int(body.Pcode.Value)); err != nil {
 				if errors.Is(err, auth.ErrProductDenied) {
-					c.AbortWithStatusJSON(http.StatusForbidden, request.Response{Status: rescode.ErrPermissionDenied, Msg: rescode.GetCodeMsg(rescode.ErrPermissionDenied)})
+					request.AbortWithStatusJSON(c, http.StatusForbidden, request.Response{Status: rescode.ErrPermissionDenied, Msg: rescode.GetCodeMsg(rescode.ErrPermissionDenied)})
 					return
 				}
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
+				request.AbortWithStatusJSON(c, http.StatusServiceUnavailable, request.Response{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 				return
 			}
 		}
