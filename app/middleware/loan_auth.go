@@ -8,18 +8,18 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/gin-finapi/app/auth"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 // LoanAuthWithProduct 在 API Key 签名认证后校验对应 pcode 的授权。
-func LoanAuthWithProduct(load func(context.Context, string) (auth.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
+func LoanAuthWithProduct(load func(context.Context, string) (services.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
 	return loanAuth(load, loadProduct)
 }
 
-func loanAuth(load func(context.Context, string) (auth.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
+func loanAuth(load func(context.Context, string) (services.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reject := func(code int, message string) {
 			request.AbortWithStatusJSON(c, http.StatusBadRequest, request.Response{Status: code, Msg: message})
@@ -77,7 +77,7 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 			return
 		}
 		credential, err := load(c.Request.Context(), body.Apikey)
-		if errors.Is(err, auth.ErrInvalid) {
+		if errors.Is(err, services.ErrAPIKeyInvalid) {
 			reject(rescode.ErrInvalidApikey, rescode.GetCodeMsg(rescode.ErrInvalidApikey))
 			return
 		}
@@ -107,7 +107,7 @@ func loanAuth(load func(context.Context, string) (auth.Credential, error), loadP
 		}
 		if loadProduct != nil {
 			if err := loadProduct(c.Request.Context(), body.Apikey, int(body.Pcode.Value)); err != nil {
-				if errors.Is(err, auth.ErrProductDenied) {
+				if errors.Is(err, services.ErrProductDenied) {
 					request.AbortWithStatusJSON(c, http.StatusForbidden, request.Response{Status: rescode.ErrPermissionDenied, Msg: rescode.GetCodeMsg(rescode.ErrPermissionDenied)})
 					return
 				}

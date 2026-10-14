@@ -1,5 +1,10 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-14：用户确认认证契约合并到 app/services/auth.go，旧 app/auth Go 包已移除。
+> Credential/ProductAccess 字段和 JSON 不变；认证错误使用 ErrAPIKeyInvalid、ErrAuthUnavailable、ErrProductDenied，
+> 与查询 ErrUnavailable 保持区分。下文 app/auth/credential.go 为历史来源。
+> 详见 [认证契约合并](../specs/20261014-认证契约合并-设计.md)。
+
 > 2026-10-14：限流器构造不再启动 goroutine；bootstrap 显式 Start，并在 HTTP 排空后关闭限流 worker。
 > SetupRoute 返回关闭函数，直接调用方须负责清理。phone 转换纯函数已迁到 app/services/phone_lookup.go，
 > Handler 在 SID 前调用，32 位截前 20 位、64 位分支及错误码不变；下文 Handler 持有规则的描述为历史结构。
@@ -120,7 +125,7 @@ POST /api
 | --- | --- | --- |
 | `main.go` | 信号、Run 和退出码 | 已接入 |
 | `bootstrap/` | 应用依赖装配、HTTP 生命周期、资源关闭和路由注册 | 已接入 |
-| `app/services/`、`app/auth/` | 存储无关的查询流程与认证语义 | 已接入 |
+| `app/services/` | 存储无关的查询流程、phone 转换与认证语义 | 已接入 |
 | `routes/` | 健康检查和贷款路由 | 已接入 |
 | `app/Http/controllers/loan/` | phone 归一化、SID、注入查询和 HTTP 响应映射 | SHA-256 转换为 TODO，返回 503/9002 |
 | `app/middleware/` | CORS、日志、限流、认证和产品授权 | 已接入 |

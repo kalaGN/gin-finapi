@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
-	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/services"
 	applogger "github.com/kalaGN/gin-finapi/pkg/logger"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
@@ -37,9 +36,9 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 		{name: "缺少参数", mutate: func(b map[string]interface{}) { delete(b, "phone") }, http: 400, code: 1001},
 		{name: "手机号长度错误", mutate: func(b map[string]interface{}) { b["phone"] = "short" }, http: 400, code: 1002},
 		{name: "签名错误", mutate: func(b map[string]interface{}) { b["sign"] = "invalid" }, http: 400, code: 2002},
-		{name: "无效凭据", keyErr: auth.ErrInvalid, http: 400, code: 2001},
-		{name: "认证依赖故障", keyErr: auth.ErrUnavailable, http: 503, code: 9002},
-		{name: "无权限", grantErr: auth.ErrProductDenied, http: 403, code: 2004},
+		{name: "无效凭据", keyErr: services.ErrAPIKeyInvalid, http: 400, code: 2001},
+		{name: "认证依赖故障", keyErr: services.ErrAuthUnavailable, http: 503, code: 9002},
+		{name: "无权限", grantErr: services.ErrProductDenied, http: 403, code: 2004},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var output bytes.Buffer
@@ -54,8 +53,8 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			}
 			r := gin.New()
 			r.Use(Logger(log))
-			r.POST("/api", LoanAuthWithProduct(func(context.Context, string) (auth.Credential, error) {
-				return auth.Credential{Secret: "test-secret"}, tc.keyErr
+			r.POST("/api", LoanAuthWithProduct(func(context.Context, string) (services.Credential, error) {
+				return services.Credential{Secret: "test-secret"}, tc.keyErr
 			}, func(context.Context, string, int) error { return tc.grantErr }), handler.Create)
 			body := map[string]interface{}{"phone": strings.Repeat("r", 32), "pcode": 10001, "apikey": "test-key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "test-secret")

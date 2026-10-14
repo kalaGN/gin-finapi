@@ -8,19 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/configdata"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
 )
 
 var (
-	ErrAPIKeyInvalid   = auth.ErrInvalid
-	ErrAuthUnavailable = auth.ErrUnavailable
+	ErrAPIKeyInvalid   = services.ErrAPIKeyInvalid
+	ErrAuthUnavailable = services.ErrAuthUnavailable
 )
 
 // APIKeyCredential 保留旧名称，与认证边界的凭据快照类型一致；Secret 禁止写日志。
-type APIKeyCredential = auth.Credential
+type APIKeyCredential = services.Credential
 
 // APIKeys owns a read-only Redis connection pool. It does not cache credentials.
 type APIKeys struct {
@@ -79,19 +79,19 @@ func (keys *APIKeys) Close() error {
 }
 
 // ReadCredential 读取已摘要化的键，保留禁用/到期状态供读取层逐次判断。
-func (keys *APIKeys) ReadCredential(ctx context.Context, digest string) (auth.Credential, bool, error) {
+func (keys *APIKeys) ReadCredential(ctx context.Context, digest string) (services.Credential, bool, error) {
 	readCtx, cancel := context.WithTimeout(ctx, keys.timeout)
 	defer cancel()
 	raw, err := keys.get(readCtx, "gin-finapi:auth:apikey:v1:"+digest)
 	if errors.Is(err, driver.Nil) {
-		return auth.Credential{}, false, nil
+		return services.Credential{}, false, nil
 	}
 	if err != nil {
-		return auth.Credential{}, false, auth.ErrUnavailable
+		return services.Credential{}, false, services.ErrAuthUnavailable
 	}
 	value, err := parseAPIKeyCredential(raw)
 	if err != nil {
-		return auth.Credential{}, false, errors.Join(auth.ErrUnavailable, configdata.ErrInvalidRecord)
+		return services.Credential{}, false, errors.Join(services.ErrAuthUnavailable, configdata.ErrInvalidRecord)
 	}
 	return value, true, nil
 }

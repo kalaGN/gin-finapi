@@ -12,7 +12,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - 应用入口：`main.go`（信号与退出码）→ `bootstrap.Run`（装配与生命周期）。
 - 路由：`routes/api.go`；中间件：`app/middleware/`。
 - 核心处理：LoanHandler → `app/services/product_query.go` → `pkg/mongo/store.go`（实例配置与客户端）。
-- `app/auth/` 定义认证凭据和错误；Handler/认证中间件不直接引用存储包。
+- `app/services/auth.go` 定义凭据、授权快照和认证错误；认证不可用 ErrAuthUnavailable 与查询 ErrUnavailable 分开，Handler/中间件不直接引用存储包。
 - `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；所有 32 位字符串截前 20 位查 t。
 - JSON nonce 为必填非空字符串；签名字段为 apikey、nonce、timestamp，排序拼接后附 secret 做 MD5；无防重放去重。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。

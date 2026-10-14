@@ -25,7 +25,7 @@
 | `bootstrap/` | 配置、日志、依赖和路由装配；HTTP 生命周期和资源关闭 |
 | `routes/` | `GET /health`、`POST /api` 注册 |
 | `app/Http/controllers/loan/` | 已认证请求处理、调用查询标识规则、SID 和 HTTP 响应 |
-| `app/services/`、`app/auth/` | 查询编排、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
+| `app/services/` | 查询编排、phone 转换、凭据/授权快照与稳定错误，不依赖 Gin 或存储实现 |
 | `app/middleware/` | CORS、日志、进程内限流、LoanAuthWithProduct |
 | `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、后台刷新及关闭 |
 | `pkg/config/` | 主调用链的环境配置入口 |
@@ -90,7 +90,8 @@ main.go
 ```
 
 LoanHandler 显式注入查询、SID 和 Logger；bootstrap 仅装配查询用例、存储错误适配、认证和限流。
-HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，稳定语义分别来自 app/services、app/auth。
+HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，查询与认证稳定语义统一来自 app/services。
+认证 ErrAuthUnavailable 与查询 ErrUnavailable 必须区分，不因合并目录而合并错误分类或数据契约。
 未使用的 LoanRepository 接口已移除，不为本查询创建 CRUD 分层。
 
 ### 职责与依赖

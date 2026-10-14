@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/gin-finapi/app/auth"
+	"github.com/kalaGN/gin-finapi/app/services"
 	applogger "github.com/kalaGN/gin-finapi/pkg/logger"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
@@ -33,9 +33,9 @@ func TestLoanAuth_PhoneLength(t *testing.T) {
 			}
 			reads, grants, handled := 0, 0, 0
 			router := gin.New()
-			router.POST("/api", LoanAuthWithProduct(func(context.Context, string) (auth.Credential, error) {
+			router.POST("/api", LoanAuthWithProduct(func(context.Context, string) (services.Credential, error) {
 				reads++
-				return auth.Credential{Secret: "secret"}, nil
+				return services.Credential{Secret: "secret"}, nil
 			}, func(context.Context, string, int) error { grants++; return nil }), func(c *gin.Context) { handled++; c.Status(204) })
 			req := httptest.NewRequest("POST", "/api", bytes.NewReader(data))
 			req.Header.Set("Content-Type", "application/json")
@@ -158,8 +158,8 @@ func TestLoanAuthWithProduct_RequiresProductAuthorization(t *testing.T) {
 		want int
 	}{
 		{"allowed", nil, http.StatusNoContent},
-		{"denied", auth.ErrProductDenied, http.StatusForbidden},
-		{"unavailable", auth.ErrUnavailable, http.StatusServiceUnavailable},
+		{"denied", services.ErrProductDenied, http.StatusForbidden},
+		{"unavailable", services.ErrAuthUnavailable, http.StatusServiceUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			router := gin.New()

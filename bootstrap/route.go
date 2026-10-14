@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
-	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/app/services"
@@ -37,7 +36,7 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	}
 	reader, err := configdata.New(configdata.Sources{
 		Credentials: []configdata.Source[string, appredis.APIKeyCredential]{keys.ReadCredential},
-		Products:    []configdata.Source[configdata.ProductKey, auth.ProductAccess]{keys.ReadProductAccess},
+		Products:    []configdata.Source[configdata.ProductKey, services.ProductAccess]{keys.ReadProductAccess},
 		Maps:        []configdata.Source[int, map[string]int]{maps.ReadProductMap},
 	}, cfg.Cache, cfg.Redis.Timeout)
 	if err != nil {

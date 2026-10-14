@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	handlerloan "github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
-	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/app/services"
@@ -33,18 +32,18 @@ func TestLoanWithConfigCache(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx := context.Background()
-			credential := auth.Credential{Version: 1, Secret: "test-secret", Status: 1}
+			credential := services.Credential{Version: 1, Secret: "test-secret", Status: 1}
 			productFound := true
 			var storageErr, mappingErr error
 			reads := 0
 			reader, err := configdata.New(configdata.Sources{
-				Credentials: []configdata.Source[string, auth.Credential]{func(context.Context, string) (auth.Credential, bool, error) {
+				Credentials: []configdata.Source[string, services.Credential]{func(context.Context, string) (services.Credential, bool, error) {
 					reads++
 					return credential, true, storageErr
 				}},
-				Products: []configdata.Source[configdata.ProductKey, auth.ProductAccess]{func(context.Context, configdata.ProductKey) (auth.ProductAccess, bool, error) {
+				Products: []configdata.Source[configdata.ProductKey, services.ProductAccess]{func(context.Context, configdata.ProductKey) (services.ProductAccess, bool, error) {
 					reads++
-					return auth.ProductAccess{Version: 1, Status: 1}, productFound, storageErr
+					return services.ProductAccess{Version: 1, Status: 1}, productFound, storageErr
 				}},
 				Maps: []configdata.Source[int, map[string]int]{func(context.Context, int) (map[string]int, bool, error) {
 					reads++

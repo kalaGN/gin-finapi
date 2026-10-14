@@ -37,8 +37,7 @@
 gin-finapi/
 ├── app/
 │   ├── Http/controllers/loan/ # LoanHandler：已认证请求、SID 与 HTTP 响应
-│   ├── services/             # 产品查询编排、phone 标识转换与业务错误
-│   ├── auth/                 # 凭据、产品授权快照与认证错误
+│   ├── services/             # 产品查询、phone 转换、凭据/授权快照与业务错误
 │   ├── configdata/           # 内存优先读取、LRU、回源合并与后台刷新
 │   └── middleware/           # 认证、CORS、日志与可关闭的 IP 限流
 ├── bootstrap/                # 依赖装配、HTTP 生命周期和资源关闭

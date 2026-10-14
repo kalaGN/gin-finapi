@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kalaGN/gin-finapi/app/auth"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
@@ -72,7 +72,7 @@ func TestLoanAuthWithProduct_UnsignedProductStillRequiresAuthorization(t *testin
 		if key != "key" || pcode != 10002 {
 			t.Fatal("产品授权未使用当前请求参数")
 		}
-		return auth.ErrProductDenied
+		return services.ErrProductDenied
 	}), func(*gin.Context) { t.Error("未授权请求进入 Handler") })
 	req := httptest.NewRequest("POST", "/api", bytes.NewReader(data))
 	req.Header.Set("Content-Type", "application/json")

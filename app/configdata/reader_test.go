@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 )
@@ -16,13 +15,13 @@ import (
 func testReader(t *testing.T, s Sources, cfg config.CacheConfig) *Reader {
 	t.Helper()
 	if len(s.Credentials) == 0 {
-		s.Credentials = []Source[string, auth.Credential]{func(context.Context, string) (auth.Credential, bool, error) {
-			return auth.Credential{Version: 1, Secret: "secret", Status: 1}, true, nil
+		s.Credentials = []Source[string, services.Credential]{func(context.Context, string) (services.Credential, bool, error) {
+			return services.Credential{Version: 1, Secret: "secret", Status: 1}, true, nil
 		}}
 	}
 	if len(s.Products) == 0 {
-		s.Products = []Source[ProductKey, auth.ProductAccess]{func(context.Context, ProductKey) (auth.ProductAccess, bool, error) {
-			return auth.ProductAccess{Version: 1, Status: 1}, true, nil
+		s.Products = []Source[ProductKey, services.ProductAccess]{func(context.Context, ProductKey) (services.ProductAccess, bool, error) {
+			return services.ProductAccess{Version: 1, Status: 1}, true, nil
 		}}
 	}
 	if len(s.Maps) == 0 {
@@ -45,12 +44,12 @@ func testReader(t *testing.T, s Sources, cfg config.CacheConfig) *Reader {
 func TestReaderNoAgeTTLAndBusinessExpiry(t *testing.T) {
 	calls := 0
 	now := time.Unix(100, 0)
-	r := testReader(t, Sources{Credentials: []Source[string, auth.Credential]{func(_ context.Context, key string) (auth.Credential, bool, error) {
+	r := testReader(t, Sources{Credentials: []Source[string, services.Credential]{func(_ context.Context, key string) (services.Credential, bool, error) {
 		calls++
 		if key != Digest("key") {
 			t.Error("raw API Key used in source")
 		}
-		return auth.Credential{Version: 1, Secret: "secret", Status: 1, ExpiresAt: 1000}, true, nil
+		return services.Credential{Version: 1, Secret: "secret", Status: 1, ExpiresAt: 1000}, true, nil
 	}}}, config.CacheConfig{})
 	r.now = func() time.Time { return now }
 	if _, err := r.LoadCredential(context.Background(), "key"); err != nil {
@@ -61,7 +60,7 @@ func TestReaderNoAgeTTLAndBusinessExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = time.Unix(1000, 0)
-	if _, err := r.LoadCredential(context.Background(), "key"); !errors.Is(err, auth.ErrInvalid) {
+	if _, err := r.LoadCredential(context.Background(), "key"); !errors.Is(err, services.ErrAPIKeyInvalid) {
 		t.Fatal("expired credential accepted")
 	}
 	if calls != 1 {
@@ -70,10 +69,10 @@ func TestReaderNoAgeTTLAndBusinessExpiry(t *testing.T) {
 }
 
 func TestReaderRefreshRotationDeletionFailureAndInvalid(t *testing.T) {
-	credential := auth.Credential{Version: 1, Secret: "old", Status: 1}
+	credential := services.Credential{Version: 1, Secret: "old", Status: 1}
 	found := true
 	var readErr error
-	r := testReader(t, Sources{Credentials: []Source[string, auth.Credential]{func(context.Context, string) (auth.Credential, bool, error) { return credential, found, readErr }}}, config.CacheConfig{})
+	r := testReader(t, Sources{Credentials: []Source[string, services.Credential]{func(context.Context, string) (services.Credential, bool, error) { return credential, found, readErr }}}, config.CacheConfig{})
 	ctx := context.Background()
 	get := func(want string, wantErr error) {
 		t.Helper()
@@ -94,25 +93,25 @@ func TestReaderRefreshRotationDeletionFailureAndInvalid(t *testing.T) {
 	get("new", nil)
 	readErr = ErrInvalidRecord
 	r.Refresh(ctx)
-	get("", auth.ErrUnavailable)
+	get("", services.ErrAuthUnavailable)
 	readErr = nil
 	get("new", nil)
 	credential.Status = 0
 	r.Refresh(ctx)
-	get("", auth.ErrInvalid)
+	get("", services.ErrAPIKeyInvalid)
 	credential.Status = 1
 	r.Refresh(ctx)
 	get("new", nil)
 	found = false
 	r.Refresh(ctx)
-	get("", auth.ErrInvalid)
+	get("", services.ErrAPIKeyInvalid)
 }
 
 func TestReaderProductRevocationAndExpiry(t *testing.T) {
-	access := auth.ProductAccess{Version: 1, Status: 1, ExpiresAt: 101}
+	access := services.ProductAccess{Version: 1, Status: 1, ExpiresAt: 101}
 	calls := 0
 	now := time.Unix(100, 0)
-	r := testReader(t, Sources{Products: []Source[ProductKey, auth.ProductAccess]{func(_ context.Context, key ProductKey) (auth.ProductAccess, bool, error) {
+	r := testReader(t, Sources{Products: []Source[ProductKey, services.ProductAccess]{func(_ context.Context, key ProductKey) (services.ProductAccess, bool, error) {
 		calls++
 		if key != (ProductKey{Digest("key"), 10001}) {
 			t.Error("wrong product key")
@@ -125,7 +124,7 @@ func TestReaderProductRevocationAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = time.Unix(101, 0)
-	if err := r.CheckProductAccess(ctx, "key", 10001); !errors.Is(err, auth.ErrProductDenied) {
+	if err := r.CheckProductAccess(ctx, "key", 10001); !errors.Is(err, services.ErrProductDenied) {
 		t.Fatal("expiry ignored")
 	}
 	if calls != 1 {
@@ -134,7 +133,7 @@ func TestReaderProductRevocationAndExpiry(t *testing.T) {
 	access.ExpiresAt = 0
 	access.Status = 0
 	r.Refresh(ctx)
-	if err := r.CheckProductAccess(ctx, "key", 10001); !errors.Is(err, auth.ErrProductDenied) {
+	if err := r.CheckProductAccess(ctx, "key", 10001); !errors.Is(err, services.ErrProductDenied) {
 		t.Fatal("revocation ignored")
 	}
 	access.Status = 1
@@ -191,17 +190,17 @@ func TestSourcesOnlyFallThroughOnMissing(t *testing.T) {
 		lower  int
 		want   error
 	}{
-		{"missing", false, 0, nil, 1, nil}, {"enabled", true, 1, nil, 0, nil}, {"disabled", true, 0, nil, 0, auth.ErrInvalid}, {"failed", false, 0, errors.New("storage"), 0, auth.ErrUnavailable},
+		{"missing", false, 0, nil, 1, nil}, {"enabled", true, 1, nil, 0, nil}, {"disabled", true, 0, nil, 0, services.ErrAPIKeyInvalid}, {"failed", false, 0, errors.New("storage"), 0, services.ErrAuthUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			r := testReader(t, Sources{Credentials: []Source[string, auth.Credential]{
-				func(context.Context, string) (auth.Credential, bool, error) {
-					return auth.Credential{Status: tc.status, Secret: "first"}, tc.found, tc.err
+			r := testReader(t, Sources{Credentials: []Source[string, services.Credential]{
+				func(context.Context, string) (services.Credential, bool, error) {
+					return services.Credential{Status: tc.status, Secret: "first"}, tc.found, tc.err
 				},
-				func(context.Context, string) (auth.Credential, bool, error) {
+				func(context.Context, string) (services.Credential, bool, error) {
 					calls++
-					return auth.Credential{Status: 1, Secret: "second"}, true, nil
+					return services.Credential{Status: 1, Secret: "second"}, true, nil
 				},
 			}}, config.CacheConfig{})
 			_, err := r.LoadCredential(context.Background(), "key")
@@ -363,17 +362,17 @@ func TestCacheAdmissionWaitHasTimeout(t *testing.T) {
 }
 
 func TestReaderDisabledReadsEverySourceAndNeverCaches(t *testing.T) {
-	credential := auth.Credential{Version: 1, Secret: "old", Status: 1}
-	access := auth.ProductAccess{Version: 1, Status: 1}
+	credential := services.Credential{Version: 1, Secret: "old", Status: 1}
+	access := services.ProductAccess{Version: 1, Status: 1}
 	mapping := map[string]int{"a": 0}
 	var readErr error
 	counts := [3]int{}
 	r := testReader(t, Sources{
-		Credentials: []Source[string, auth.Credential]{func(context.Context, string) (auth.Credential, bool, error) {
+		Credentials: []Source[string, services.Credential]{func(context.Context, string) (services.Credential, bool, error) {
 			counts[0]++
 			return credential, true, readErr
 		}},
-		Products: []Source[ProductKey, auth.ProductAccess]{func(context.Context, ProductKey) (auth.ProductAccess, bool, error) {
+		Products: []Source[ProductKey, services.ProductAccess]{func(context.Context, ProductKey) (services.ProductAccess, bool, error) {
 			counts[1]++
 			return access, true, readErr
 		}},
@@ -402,11 +401,11 @@ func TestReaderDisabledReadsEverySourceAndNeverCaches(t *testing.T) {
 		t.Fatal("rotation not immediate")
 	}
 	access.Status = 0
-	if err := r.CheckProductAccess(ctx, "key", 10001); !errors.Is(err, auth.ErrProductDenied) {
+	if err := r.CheckProductAccess(ctx, "key", 10001); !errors.Is(err, services.ErrProductDenied) {
 		t.Fatal("revocation not immediate")
 	}
 	readErr = errors.New("network")
-	if _, err := r.LoadCredential(ctx, "key"); !errors.Is(err, auth.ErrUnavailable) {
+	if _, err := r.LoadCredential(ctx, "key"); !errors.Is(err, services.ErrAuthUnavailable) {
 		t.Fatal("used stale credential")
 	}
 	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, services.ErrUnavailable) {
