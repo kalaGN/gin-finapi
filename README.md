@@ -1,6 +1,14 @@
 # Gin FinAPI
 
-基于 Gin Web 框架构建的 Go 语言 API 服务项目。
+基于 Gin 的 HTTP 查询服务：Redis 提供 API Key 凭据、产品授权与变量映射，MongoDB 保存 gzip/CSV 数据。
+当前接口为 `GET /health` 和 `POST /api`；开发规则与详细设计见 [文档索引](doc/README.md)。
+
+## 当前实现（2026-10-14）
+
+- phone 查询标识转换位于 `app/services/phone_lookup.go`，Handler 在生成 SID 前调用；查询规则和错误码不变。
+- 限流器通过 `Start/Close` 管理清理任务，由 bootstrap 启动并在 HTTP 排空后关闭。
+- 请求日志支持异步写文件或独立 Redis，记录完整请求体、实际响应、业务状态、success/charge 和毫秒时间。
+- 本轮未更新版本 Tag；具体变更及验证见 [生命周期与查询职责设计](doc/specs/20261014-限流生命周期与查询职责-设计.md)。
 
 ## 版本 v1.0.1（2026-10-13）
 
@@ -19,7 +27,7 @@
 - **Go 1.24.0 / toolchain 1.24.10**
 - **Gin v1.11.0** - Web 框架
 - **MongoDB** - 数据库（支持连接池）
-- **Redis** - 按 pcode 读取 `mongo_map` 产品变量映射
+- **Redis** - String KV 存储凭据、产品授权和 `gin-finapi:product-map:v1:<pcode>` 映射
 - **Logrus** - 日志系统
 - **godotenv** - 环境变量管理
 
@@ -28,50 +36,50 @@
 ```
 gin-finapi/
 ├── app/
-│   ├── Http/controllers/    # 控制器层
-│   │   └── loan/            # 贷款业务
-│   ├── services/           # 产品查询编排与稳定错误语义
-│   ├── auth/               # 不依赖存储的认证凭据与错误
-│   ├── middleware/          # 中间件
-│   │   ├── loan_auth.go     # JSON API Key + 签名鉴权
-│   │   ├── cors.go          # CORS
-│   │   ├── logger.go        # 日志
-│   │   ├── ratelimit.go     # 限流
-
-│   ├── models/              # 数据模型
-│   └── repositories/        # 数据仓库
-├── bootstrap/               # 依赖装配、HTTP 生命周期和关闭
-├── pkg/                     # 工具包
-│   ├── config/              # 配置管理
-│   ├── env/                 # 环境变量
-│   ├── logger/              # 日志工具
-│   ├── mongo/               # MongoDB 操作
-│   ├── redis/               # Redis 操作
-│   └── rescode/             # 响应码定义
-├── routes/                  # 路由定义
-├── .env                     # 环境变量（不提交）
-├── .env.example             # 环境变量模板
-└── main.go                  # 程序入口
+│   ├── Http/controllers/loan/ # LoanHandler：已认证请求、SID 与 HTTP 响应
+│   ├── services/             # 产品查询编排、phone 标识转换与业务错误
+│   ├── auth/                 # 凭据、产品授权快照与认证错误
+│   ├── configdata/           # 内存优先读取、LRU、回源合并与后台刷新
+│   └── middleware/           # 认证、CORS、日志与可关闭的 IP 限流
+├── bootstrap/                # 依赖装配、HTTP 生命周期和资源关闭
+├── pkg/
+│   ├── config/               # 环境配置加载与校验
+│   ├── logger/               # 应用日志、异步请求日志与 JSON 格式
+│   ├── mongo/                # Store、客户端生命周期和 gzip/CSV 解码
+│   ├── redis/                # 凭据、授权、产品映射读取与客户端配置
+│   ├── request/              # HTTP DTO、严格类型解析与响应出口
+│   ├── rescode/              # 对外业务码和文案
+│   └── utils/                # 签名、时间戳与 SID
+├── routes/                   # GET /health、POST /api 路由定义
+├── cmd/                      # 显式授权后使用的数据初始化工具
+├── tests/                    # Apifox 用例、隔离集成测试与历史压测脚本
+├── doc/                      # Rules、Specs、Knowledge
+├── .github/workflows/ci.yml  # 格式、静态检查、竞态测试与构建门禁
+├── .env.example              # 配置模板；本地 .env 不提交
+└── main.go                   # 信号处理、调用 bootstrap.Run 与退出码
 ```
 
 ## 功能特性
 
 ### 中间件系统
+
 - ✅ **日志中间件** - 结构化日志记录方法、路由、状态码、耗时及完整请求体与响应
 - ✅ **异常恢复** - 使用 Gin 内置 Recovery
 - ✅ **CORS 支持** - 跨域请求处理
-- ✅ **限流保护** - 单进程按 IP 限流（5000 req/s）
-- ✅ **认证鉴权** - Redis API Key + timestamp/sign；phone 原值查询
+- ✅ **限流保护** - 单进程按 IP 计数，次数/窗口可配置；默认 5000 次、1s 窗口，不代表吞吐基线
+- ✅ **认证鉴权** - API Key + nonce/timestamp/sign 与产品授权；phone 按现有规则转为查询标识
 
 ### 数据库连接池
+
 - ✅ **MongoDB 连接池** - 主链路由独立 Store 持有配置和懒连接，默认最大 100 连接
 - ✅ **Redis 连接池** - 认证/产品映射各自复用一个池；REDIS_POOL_SIZE 分别作用于每池，不是应用总上限
 - ✅ **优雅关闭** - 资源自动清理
 
 ### 配置管理
-- ✅ **环境变量驱动** - 符合 12-Factor App 原则
+
+- ✅ **环境变量驱动** - 支持 `.env` 或等价环境变量，配置加载集中在启动入口
 - ✅ **默认值支持** - 启动校验 Mongo/Redis 配置；API Key 与签名密钥从 Redis 凭据读取
-- ✅ **多环境支持** - 开发/测试/生产环境隔离
+- ✅ **环境模式** - `ENV` 控制 Gin 模式和应用日志格式；测试数据隔离须自行配置
 
 ## 快速开始
 
@@ -116,6 +124,9 @@ REDIS_TIMEOUT=1s
 ```
 
 ### 3. 运行项目
+
+启动前须由受控流程准备 Redis 凭据、产品授权、变量映射及 Mongo 数据；应用不自动初始化数据。
+工具说明见 [cmd/README.md](cmd/README.md)。`init_mongo.go` 会删除并重建 16 个集合，未经明确授权不得执行。
 
 **开发环境：**
 
@@ -248,6 +259,15 @@ Value 为 `{"version":1,"status":1,"expires_at":0}`。凭据、授权和产品�
 | `REDIS_PRODUCT_AUTH_CACHE_MAX_ENTRIES` | 授权 LRU 最大条目数，正整数 | `10000` | 否 |
 | `REDIS_PRODUCT_MAP_CACHE_MAX_ENTRIES` | 映射 LRU 最大条目数，正整数 | `1000` | 否 |
 | `REDIS_CACHE_SYNC_CONCURRENCY` | 三类数据共用的回源并发上限，正整数 | `4` | 否 |
+| `REQUEST_LOG_OUTPUT` | 请求日志后端，`file` 或 `redis` | `file` | 否 |
+| `REQUEST_LOG_FILE` | 文件后端追加路径 | `request.log` | 否 |
+| `REQUEST_LOG_QUEUE_SIZE` | 请求日志队列条数上限，正整数 | `10000` | 否 |
+| `REQUEST_LOG_MAX_BYTES` | 排队及进行中日志的载荷字节预算，不是进程总内存上限 | `67108864` | 否 |
+| `CHARGE_REDIS_ADDR` | 独立日志 Redis 地址，不回退到 REDIS_ADDR | (空) | redis 模式必填 |
+| `CHARGE_REDIS_PASSWORD` | 独立日志 Redis 密码 | (空) | 否 |
+| `CHARGE_REDIS_DB` | 独立日志 Redis DB，非负整数 | `0` | 否 |
+| `CHARGE_REDIS_POOL_SIZE` | 独立日志 Redis 池大小，正整数 | `10` | 否 |
+| `CHARGE_REDIS_TIMEOUT` | 单次日志 Redis 写入超时，正 Go duration | `1s` | 否 |
 
 ### 产品变量映射
 
@@ -270,7 +290,8 @@ SET gin-finapi:product-map:v1:10001 '{"var100001":0,"var100002":1,"var100003":2,
 不使用硬编码回退。缓存容量默认值仅为初始保护值，不是生产容量结论；MySQL 尚未接入。
 Mongo t/v、gzip/CSV 格式不变，CSV 长度仍必须等于最大映射索引加一。
 `main` 只处理信号和退出码，`bootstrap.Run` 装配并管理运行；启动或服务失败也进入依赖清理。
-正常关闭为 HTTP → 配置缓存 worker/回源 → Mongo Store → Redis，HTTP/依赖各有独立 5s 预算；HTTP Shutdown 失败时强制 Close。
+正常关闭为 HTTP → 限流 worker → 配置缓存 worker/回源 → Mongo Store → Redis → 请求日志，
+HTTP/依赖各有独立 5s 预算；HTTP Shutdown 失败时强制 Close。
 服务 goroutine 退出等待另设 5s 保护，整个过程不承诺严格 10s 硬上限；需匹配部署终止宽限时间。
 Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除旧 GetMongo/GetClient/包级 Close 入口。
 
@@ -283,9 +304,9 @@ Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除�
 
 ### 添加新接口
 
-1. 在 `app/Http/controllers/` 创建控制器
-2. 在 main 装配依赖并向 `routes/api.go` 注入 Handler
-3. 在业务路由注册认证中间件；`/api` 必须挂载 LoanAuth
+1. 复用已有 `app/` 目录；未经明确确认，不新增目录。HTTP 处理放 Handler，业务规则放现有 `app/services/`。
+2. 在 `bootstrap/route.go` 装配依赖，由 `routes/api.go` 绑定 Handler；main 保持信号与退出职责。
+3. 在业务路由注册认证中间件；`/api` 必须挂载 `LoanAuthWithProduct`，新功能同步补测试。
 
 ### 添加中间件
 
@@ -298,23 +319,29 @@ router.Use(middleware.YourMiddleware())
 `/api` 的认证与产品授权由 `bootstrap/route.go` 注入
 `middleware.LoanAuthWithProduct`；不要在路由层读取静态密钥或绕过产品授权。
 
-## Docker 部署
+### 验证与 CI
 
-仓库目前没有 Dockerfile，以下为历史部署示意，不能直接作为可执行部署流程。
-上线前必须由受控维护方准备 Redis 凭据记录，不把密钥写入镜像或命令历史。
+在仓库根目录执行，命令与现有 CI 工具链一致：
 
 ```bash
-# 构建镜像
-docker build -t gin-finapi:latest .
-
-# 运行容器
-docker run -d \
-  -p 8082:8082 \
-  -e SERVER_PORT=8082 \
-  -e MONGODB_DSN=mongodb://host:27017 \
-  -e MONGODB_DATABASE=mydb \
-  gin-finapi:latest
+go mod verify
+gofmt -l $(git ls-files '*.go')
+go vet ./...
+go test -race ./...
+go build ./...
+go vet cmd/init_redis.go
+go test -race cmd/init_redis.go cmd/init_redis_test.go
+git diff --check
 ```
+
+默认测试不包含真实 Redis/Mongo 集成；隔离容器回归见 [集成测试说明](tests/integration/README.md)，
+Apifox 导入见 [用例说明](tests/APIFOX.md)。数据测试只能指向专用、可丢弃环境。
+
+## 部署边界
+
+现有 GitHub Actions 只做检查和构建，不执行服务器部署；仓库没有 Dockerfile 或 Kubernetes 配置。
+按目标 CPU 架构编译二进制，分别配置运行环境、Redis/Mongo 数据和进程管理；不要将密钥写入镜像或命令历史。
+`/health` 仅返回存活响应，不代表数据库就绪；Tag、构建成功或本地测试通过也不代表已经部署。
 
 ## 日志
 
@@ -348,8 +375,8 @@ Redis 首次失败后重试两次，共最多三次尝试；仍失败则丢弃�
 关闭在现有预算内尽力排空。内存队列允许丢失，网络超时重试可能重复，不能作为唯一可靠计费账本。
 不自动裁剪 List 或设置 TTL；需管理消费速度、Redis 容量和文件轮转。修改配置后重启生效。
 
-- **开发环境**：文本格式，Debug 级别
-- **生产环境**：JSON 格式，Info 级别
+- **应用内部日志**：开发环境文本/Debug；其他环境 JSON/Info。
+- **请求完成日志**：文件或 Redis 后端统一使用 JSON，不随开发环境切换为文本。
 
 示例日志：
 
@@ -369,14 +396,10 @@ Redis 首次失败后重试两次，共最多三次尝试；仍失败则丢弃�
 }
 ```
 
-## 许可证
+## Redis API Key 凭据
 
-MIT License
-
-### Redis API Key 凭据
-
-`POST /api` 每次通过 GET 读取
-`gin-finapi:auth:apikey:v1:<sha256(apikey)>`（摘要为原始 Key 的小写十六进制 SHA-256）。
+凭据存储于 `gin-finapi:auth:apikey:v1:<sha256(apikey)>`（摘要为原始 Key 的小写十六进制 SHA-256）。
+开启缓存时优先读内存，未命中 GET Redis；关闭缓存时每次 GET。
 String Value 严格使用以下 JSON，示例仅为占位：
 
 ```json
@@ -389,3 +412,7 @@ secret 为 1–256 字节，记录最大 4 KiB；拒绝缺失、重复、未知�
 服务不自动创建记录，也不回退环境变量。请在部署切换前确认目标 Redis 并迁移旧凭据；
 使用受控工具 SET NX 导入，避免覆盖；配置存储需具备持久化、备份和防淘汰措施。
 API Key–产品授权需要在部署前写入 Redis；初始化样例工具可在显式参数授权下写入测试授权，生产授权由受控流程维护。
+
+## 许可证
+
+MIT License（当前 README 声明；仓库未提供独立 LICENSE 文件）。
