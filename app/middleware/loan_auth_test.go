@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/auth"
+	applogger "github.com/kalaGN/gin-finapi/pkg/logger"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
@@ -216,29 +217,42 @@ func TestLoanAuth_ValidatesJSONAndConfiguration(t *testing.T) {
 	}
 }
 
-func TestLogger_DoesNotCaptureSensitivePayloads(t *testing.T) {
+func TestLogger_CapturesFullBodyButNotHeadersOrQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var output bytes.Buffer
 	log := logrus.New()
 	log.SetOutput(&output)
+	log.SetFormatter(applogger.RequestFormatter{})
 	r := gin.New()
 	r.Use(Logger(log))
 	r.POST("/api", func(c *gin.Context) {
-		var b map[string]string
+		var b map[string]interface{}
 		if err := c.ShouldBindJSON(&b); err != nil {
 			t.Fatal(err)
 		}
 		c.JSON(200, b)
 	})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("POST", "/api?apikey=query-secret", strings.NewReader(`{"phone":"sensitive-phone","apikey":"sensitive-key","sign":"sensitive-sign"}`)))
+	req := httptest.NewRequest("POST", "/api?apikey=query-secret", strings.NewReader(`{"phone":"sensitive-phone","apikey":"sensitive-key","sign":"sensitive-sign","extra":{"nested":true}}`))
+	req.Header.Set("Authorization", "header-secret")
+	r.ServeHTTP(w, req)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "sensitive-phone") {
 		t.Fatal("logger altered request or response")
 	}
-	for _, value := range []string{"sensitive-phone", "sensitive-key", "sensitive-sign", "query-secret"} {
-		if strings.Contains(output.String(), value) {
-			t.Fatal("sensitive value leaked to logs")
+	for _, value := range []string{"sensitive-phone", "sensitive-key", "sensitive-sign"} {
+		if !strings.Contains(output.String(), value) {
+			t.Fatal("完整请求体未被记录")
 		}
+	}
+	if strings.Contains(output.String(), "query-secret") || strings.Contains(output.String(), "header-secret") {
+		t.Fatal("URL Query 和 Header 不应进入日志")
+	}
+	var row struct {
+		Input        json.RawMessage `json:"input"`
+		ResponseData json.RawMessage `json:"response_data"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &row); err != nil || !bytes.Equal(row.ResponseData, w.Body.Bytes()) || !bytes.Contains(row.Input, []byte(`"nested":true`)) {
+		t.Fatal("未知字段或完整响应未被记录")
 	}
 	if !strings.Contains(output.String(), "http_status") {
 		t.Fatal("missing request metadata")

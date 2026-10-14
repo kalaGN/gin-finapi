@@ -55,8 +55,11 @@ func NewRequestLogger(base *logrus.Logger, cfg config.RequestLogConfig, redisCfg
 		base.WithFields(logrus.Fields{"reason": reason, "count": count}).Error("请求日志写入失败或丢弃")
 	}
 	w := newAsyncWriter(cfg.QueueSize, timeout, attempts, send, closeSink, report)
+	if cfg.MaxBytes > 0 {
+		w.maxBytes = cfg.MaxBytes
+	}
 	log := logrus.New()
-	log.SetFormatter(&logrus.JSONFormatter{TimestampFormat: time.RFC3339Nano})
+	log.SetFormatter(RequestFormatter{})
 	log.SetOutput(w)
 	return log, w.Close, nil
 }
@@ -70,27 +73,29 @@ func pushRequestLog(ctx context.Context, client redisListWriter, data []byte) er
 }
 
 type asyncWriter struct {
-	queue     chan []byte
-	mu        sync.RWMutex
-	closed    bool
-	closeOnce sync.Once
-	done      chan struct{}
-	root      context.Context
-	cancel    context.CancelFunc
-	timeout   time.Duration
-	attempts  int
-	send      func(context.Context, []byte) error
-	closeSink func() error
-	report    func(string, int64)
-	wait      func(context.Context, time.Duration) error
-	dropped   atomic.Int64
-	closeErr  error
+	queue       chan []byte
+	mu          sync.RWMutex
+	closed      bool
+	closeOnce   sync.Once
+	done        chan struct{}
+	root        context.Context
+	cancel      context.CancelFunc
+	timeout     time.Duration
+	attempts    int
+	send        func(context.Context, []byte) error
+	closeSink   func() error
+	report      func(string, int64)
+	wait        func(context.Context, time.Duration) error
+	dropped     atomic.Int64
+	queuedBytes atomic.Int64
+	maxBytes    int64
+	closeErr    error
 }
 
 func newAsyncWriter(size int, timeout time.Duration, attempts int, send func(context.Context, []byte) error, closeSink func() error, report func(string, int64)) *asyncWriter {
 	root, cancel := context.WithCancel(context.Background())
 	w := &asyncWriter{queue: make(chan []byte, size), done: make(chan struct{}), root: root, cancel: cancel,
-		timeout: timeout, attempts: attempts, send: send, closeSink: closeSink, report: report, wait: waitRetry}
+		timeout: timeout, attempts: attempts, send: send, closeSink: closeSink, report: report, wait: waitRetry, maxBytes: 64 << 20}
 	go w.run()
 	return w
 }
@@ -103,10 +108,17 @@ func (w *asyncWriter) Write(data []byte) (int, error) {
 		w.dropped.Add(1)
 		return len(data), nil
 	}
+	n := int64(len(data))
+	if w.queuedBytes.Add(n) > w.maxBytes {
+		w.queuedBytes.Add(-n)
+		w.dropped.Add(1)
+		return len(data), nil
+	}
 	record := append([]byte(nil), data...)
 	select {
 	case w.queue <- record:
 	default:
+		w.queuedBytes.Add(-n)
 		w.dropped.Add(1)
 	}
 	return len(data), nil
@@ -141,6 +153,7 @@ func (w *asyncWriter) run() {
 			if !w.writeRecord(record) {
 				w.report("write_failed", 1)
 			}
+			w.queuedBytes.Add(-int64(len(record)))
 		}
 	}
 }
@@ -178,18 +191,19 @@ func waitRetry(ctx context.Context, delay time.Duration) error {
 
 func (w *asyncWriter) reportDropped() {
 	if n := w.dropped.Swap(0); n > 0 {
-		w.report("queue_full_or_closed", n)
+		w.report("queue_full_closed_or_byte_limit", n)
 	}
 }
 
 func (w *asyncWriter) discardPending() {
 	for {
 		select {
-		case _, ok := <-w.queue:
+		case record, ok := <-w.queue:
 			if !ok {
 				return
 			}
 			w.dropped.Add(1)
+			w.queuedBytes.Add(-int64(len(record)))
 		default:
 			return
 		}

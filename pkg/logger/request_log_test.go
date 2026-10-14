@@ -49,6 +49,42 @@ func TestAsyncWriter_RetriesAndDrops(t *testing.T) {
 		if calls.Load() != int64(want) || (succeedAt == 0) != (failures.Load() == 1) {
 			t.Fatalf("尝试=%d 丢弃=%d", calls.Load(), failures.Load())
 		}
+		if w.queuedBytes.Load() != 0 {
+			t.Fatal("处理结束未释放字节预算")
+		}
+	}
+}
+
+func TestAsyncWriter_ByteBudgetIncludesInflight(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var delivered, dropped atomic.Int64
+	w := newAsyncWriter(4, time.Second, 1, func(context.Context, []byte) error {
+		delivered.Add(1)
+		close(entered)
+		<-release
+		return nil
+	}, func() error { return nil }, func(_ string, n int64) { dropped.Add(n) })
+	w.maxBytes = 4
+	w.Write([]byte("first"))
+	if w.queuedBytes.Load() != 0 {
+		t.Fatal("过大记录未释放预算")
+	}
+	w.Write([]byte("one"))
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("worker未启动")
+	}
+	w.Write([]byte("two"))
+	if w.queuedBytes.Load() != 3 {
+		t.Fatal("进行中记录的预算错误")
+	}
+	close(release)
+	if err := closeWithin(t, w); err != nil {
+		t.Fatal(err)
+	}
+	if delivered.Load() != 1 || dropped.Load() != 2 || w.queuedBytes.Load() != 0 {
+		t.Fatal("字节预算未正确丢弃或释放")
 	}
 }
 
@@ -143,6 +179,9 @@ func TestAsyncWriter_CloseCancellationAndConcurrentWrites(t *testing.T) {
 	w.Write([]byte("closed"))
 	if err := closeWithin(t, w); err != nil || closes.Load() != 1 {
 		t.Fatal("关闭不幂等")
+	}
+	if w.queuedBytes.Load() != 0 {
+		t.Fatal("关闭丢弃后未释放字节预算")
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -64,6 +65,23 @@ func TestNewRouter_RequestLogFileBackend(t *testing.T) {
 	}
 	if row.Success != 0 || row.Charge != 0 || row.Method != "POST" || row.Path != "/api" {
 		t.Fatal("日志记录错误")
+	}
+	var fields map[string]interface{}
+	var actual interface{}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &actual); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fields["response_data"], actual) || !reflect.DeepEqual(fields["input"], map[string]interface{}{}) || fields["status"] != float64(1001) {
+		t.Fatal("完整请求/响应未进入文件后端")
+	}
+	if _, ok := fields["msg"]; ok {
+		t.Fatal("日志顶层 msg 应删除")
+	}
+	if timestamp, ok := fields["time"].(float64); !ok || timestamp < 1000000000000 {
+		t.Fatal("日志时间应为毫秒整数")
 	}
 	if appLog.Len() != 0 {
 		t.Fatal("请求日志写入了内部日志后端")

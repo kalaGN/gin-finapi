@@ -11,6 +11,7 @@ type RequestLogConfig struct {
 	Output    string
 	File      string
 	QueueSize int
+	MaxBytes  int64
 }
 
 func (c RequestLogConfig) Validate() error {
@@ -22,6 +23,9 @@ func (c RequestLogConfig) Validate() error {
 	}
 	if c.QueueSize <= 0 {
 		return fmt.Errorf("REQUEST_LOG_QUEUE_SIZE must be positive")
+	}
+	if c.MaxBytes < 0 {
+		return fmt.Errorf("REQUEST_LOG_MAX_BYTES must be positive")
 	}
 	if c.Output == "file" && c.File == "" {
 		return fmt.Errorf("REQUEST_LOG_FILE is required")
@@ -35,6 +39,10 @@ func loadRequestLog() (RequestLogConfig, RedisConfig, error) {
 	c.QueueSize, err = strconv.Atoi(getEnvWithDefault("REQUEST_LOG_QUEUE_SIZE", "10000"))
 	if err != nil {
 		return c, RedisConfig{}, fmt.Errorf("REQUEST_LOG_QUEUE_SIZE must be positive")
+	}
+	c.MaxBytes, err = strconv.ParseInt(getEnvWithDefault("REQUEST_LOG_MAX_BYTES", "67108864"), 10, 64)
+	if err != nil || c.MaxBytes <= 0 {
+		return c, RedisConfig{}, fmt.Errorf("REQUEST_LOG_MAX_BYTES must be positive")
 	}
 	if err = c.Validate(); err != nil {
 		return c, RedisConfig{}, err

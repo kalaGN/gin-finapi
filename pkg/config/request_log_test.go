@@ -20,6 +20,7 @@ func TestRequestLogConfiguration(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("REQUEST_LOG_OUTPUT", tc.output)
+			t.Setenv("REQUEST_LOG_MAX_BYTES", "")
 			t.Setenv("REQUEST_LOG_FILE", "")
 			t.Setenv("REQUEST_LOG_QUEUE_SIZE", tc.size)
 			t.Setenv("CHARGE_REDIS_ADDR", tc.addr)
@@ -42,6 +43,28 @@ func TestRequestLogConfiguration(t *testing.T) {
 				}
 			} else if c.QueueSize != 8 || r.Addr != tc.addr || r.DB != 2 || r.PoolSize != 3 || r.Timeout != 250*time.Millisecond {
 				t.Fatal("独立 Redis 配置错误")
+			}
+		})
+	}
+}
+
+func TestRequestLogMaxBytes(t *testing.T) {
+	for _, value := range []string{"", "1024", "0", "-1", "bad"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("REQUEST_LOG_OUTPUT", "file")
+			t.Setenv("REQUEST_LOG_QUEUE_SIZE", "4")
+			t.Setenv("REQUEST_LOG_MAX_BYTES", value)
+			cfg, _, err := loadRequestLog()
+			if value == "" || value == "1024" {
+				want := int64(67108864)
+				if value == "1024" {
+					want = 1024
+				}
+				if err != nil || cfg.MaxBytes != want {
+					t.Fatalf("配置=%+v 错误=%v", cfg, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "REQUEST_LOG_MAX_BYTES") {
+				t.Fatal("无效字节预算被接受")
 			}
 		})
 	}

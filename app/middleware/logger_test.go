@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
 	"github.com/kalaGN/gin-finapi/app/auth"
 	"github.com/kalaGN/gin-finapi/app/services"
+	applogger "github.com/kalaGN/gin-finapi/pkg/logger"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -43,7 +45,7 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			var output bytes.Buffer
 			log := logrus.New()
 			log.SetOutput(&output)
-			log.SetFormatter(&logrus.JSONFormatter{})
+			log.SetFormatter(applogger.RequestFormatter{})
 			handler, err := loan.NewLoanHandler(func(context.Context, string, int) (map[string]int, error) {
 				return map[string]int{"var100001": 1}, tc.queryErr
 			}, func(string, int) (string, error) { return "test-sid", nil }, nil)
@@ -78,6 +80,31 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 				t.Fatalf("HTTP=%d 业务码=%d", w.Code, result.Status)
 			}
 			assertResultLog(t, output.Bytes(), tc.success, tc.charge)
+			var row struct {
+				Input        json.RawMessage `json:"input"`
+				ResponseData json.RawMessage `json:"response_data"`
+				Status       int             `json:"status"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &row); err != nil {
+				t.Fatal(err)
+			}
+			if row.Status != tc.code {
+				t.Fatalf("日志status=%d", row.Status)
+			}
+			var input, response map[string]interface{}
+			if err := json.Unmarshal(row.Input, &input); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(row.ResponseData, &response); err != nil {
+				t.Fatal(err)
+			}
+			if input["apikey"] != "test-key" || response["status"] != float64(tc.code) {
+				t.Fatal("完整输入/响应缺失")
+			}
+			var actual map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &actual); err != nil || !reflect.DeepEqual(actual, response) {
+				t.Fatal("日志响应与实际响应不一致")
+			}
 		})
 	}
 }
@@ -88,7 +115,7 @@ func TestLogger_NoBusinessStatusDoesNotCharge(t *testing.T) {
 		var output bytes.Buffer
 		log := logrus.New()
 		log.SetOutput(&output)
-		log.SetFormatter(&logrus.JSONFormatter{})
+		log.SetFormatter(applogger.RequestFormatter{})
 		r := gin.New()
 		r.Use(Logger(log))
 		r.GET("/health", func(c *gin.Context) { c.String(status, "ok") })
@@ -102,6 +129,13 @@ func assertResultLog(t *testing.T, data []byte, success, charge int) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
+	}
+	if _, exists := fields["msg"]; exists {
+		t.Fatal("日志不应包含顶层 msg")
+	}
+	var timestamp int64
+	if err := json.Unmarshal(fields["time"], &timestamp); err != nil || timestamp < 1000000000000 {
+		t.Fatal("time 应为毫秒时间戳")
 	}
 	for key, want := range map[string]int{"success": success, "charge": charge} {
 		raw, exists := fields[key]
