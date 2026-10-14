@@ -24,7 +24,7 @@
 | `main.go` | 信号 Context、Run、脱敏失败摘要与退出码 |
 | `bootstrap/` | 配置、日志、依赖和路由装配；HTTP 生命周期和资源关闭 |
 | `routes/` | `GET /health`、`POST /api` 注册 |
-| `app/Http/controllers/loan/` | 已认证请求处理、phone 查询标识、SID 和 HTTP 响应 |
+| `app/Http/controllers/loan/` | 已认证请求处理、调用查询标识规则、SID 和 HTTP 响应 |
 | `app/services/`、`app/auth/` | 查询编排、稳定错误；认证凭据与错误，不依赖 Gin 或存储实现 |
 | `app/middleware/` | CORS、日志、进程内限流、LoanAuthWithProduct |
 | `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、后台刷新及关闭 |
@@ -81,7 +81,7 @@ main.go
   → GET /health
   → POST /api
       → LoanAuthWithProduct 单次 JSON/字段/API Key/时间戳/签名及产品授权校验
-      → LoanHandler 归一化查询标识 → app/services 产品查询编排
+      → LoanHandler 调用 services.PhoneLookupKey → SID → app/services 产品查询编排
       → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
       → mongo.Store.Query（实例配置）
       → Mongo FindOne(t=phone)
@@ -102,6 +102,7 @@ HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类�
   `codec.go` 负责 gzip/CSV 解码与变量映射，`errors.go` 负责错误分类；解码函数不得承担数据库 I/O。
 - 配置从单一已加载的 `pkg/config` 对象读取，不得在请求路径重复加载环境变量。
 - 新抽象必须解决已出现的复用、隔离外部依赖或可测试性问题；单次调用不创建空壳层。
+- phone 标识转换规则归 app/services/phone_lookup.go，Handler 保留调用顺序与 HTTP 错误转换；不复制业务转换规则到 HTTP 层。
 - 未经用户事先明确确认，不得在 app/ 下新增目录；复用现有职责目录，不随意增加功能包。
 - 禁止循环依赖。通用包不得反向导入 Controller、Route 或 Bootstrap。
 
@@ -283,6 +284,8 @@ go build ./...
 - `GET /health` 只证明 HTTP 进程可响应，不检查 Mongo readiness，也没有独立 liveness/readiness。
 - Mongo 客户端只在 Connect + Ping 成功后发布；初始化失败可重试，关闭后可重新初始化。
 - 限流是单进程、按 IP 的内存计数器；RATE_LIMIT_REQUESTS 默认 5000，RATE_LIMIT_WINDOW 默认 1s。
+- NewRateLimiter 仅初始化；bootstrap 显式 Start 并在 HTTP 排空后 Close(ctx)，等待清理 worker 退出。
+  SetupRoute 返回的关闭函数由调用方持有；构造函数不得隐式启动不可关闭的后台任务。
   次数和窗口必须为正，非法配置拒绝启动，变更后重启；多实例不共享状态。
 - 使用 Logrus；生产 JSON、非生产文本。没有确认 Metrics、Tracing、告警或稳定 Request ID。
 

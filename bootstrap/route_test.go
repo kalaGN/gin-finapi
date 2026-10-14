@@ -71,7 +71,14 @@ func TestNewRouter_AssemblesPublicHealthAndLoanAuthentication(t *testing.T) {
 func TestSetupRoute_UsesConfiguredRateLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	SetupRoute(router, func(c *gin.Context) { c.Status(204) }, func(c *gin.Context) { c.Next() }, nil, config.RateLimitConfig{Requests: 1, Window: time.Hour})
+	closeMiddleware := SetupRoute(router, func(c *gin.Context) { c.Status(204) }, func(c *gin.Context) { c.Next() }, nil, config.RateLimitConfig{Requests: 1, Window: time.Hour})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := closeMiddleware(ctx); err != nil {
+			t.Error(err)
+		}
+	})
 	for _, tt := range []struct {
 		ip     string
 		status int

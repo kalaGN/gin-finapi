@@ -1,5 +1,10 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-14：限流器构造不再启动 goroutine；bootstrap 显式 Start，并在 HTTP 排空后关闭限流 worker。
+> SetupRoute 返回关闭函数，直接调用方须负责清理。phone 转换纯函数已迁到 app/services/phone_lookup.go，
+> Handler 在 SID 前调用，32 位截前 20 位、64 位分支及错误码不变；下文 Handler 持有规则的描述为历史结构。
+> 详见 [限流生命周期与查询职责](../specs/20261014-限流生命周期与查询职责-设计.md)。
+
 > 2026-10-13：按用户确认，请求日志记录完整 Body/input 与实际响应/response_data（包括请求凭据），
 > 不含 Header/Query；status 为业务码，time 为 Unix 毫秒整数，无顶层 msg。队列增加默认 64 MiB 字节预算。
 > 超限 Body 只记录前 64 KiB 并标记截断，不放宽校验；下文“不缓存 Body”为历史方案。

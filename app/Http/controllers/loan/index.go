@@ -2,7 +2,6 @@ package loan
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"net/http"
 
@@ -16,24 +15,6 @@ import (
 type CommonRes = request.Response
 type QueryFunc = services.QueryFunc
 type SIDFunc func(string, int) (string, error)
-
-var errPhoneConversionUnavailable = errors.New("SHA-256 phone conversion service is not connected")
-
-func phoneLookupKey(phone string) (string, error) {
-	if len(phone) == 32 {
-		return phone[:20], nil
-	}
-	if len(phone) == 64 {
-		if _, err := hex.DecodeString(phone); err == nil {
-			// TODO: 接入后续手机号转换服务，将 SHA-256(phone) 映射为 MD5(phone)，
-			// 再取 MD5 的前 20 位作为查询标识。
-			// 不得对 SHA-256 字符串重新哈希，否则得到的查询标识与原手机号不一致。
-			return "", errPhoneConversionUnavailable
-		}
-	}
-	// 其余标识保持原样，公开请求的长度已由认证中间件校验。
-	return phone, nil
-}
 
 // LoanHandler 使用显式注入的依赖处理已认证请求。
 type LoanHandler struct {
@@ -55,7 +36,7 @@ func (h *LoanHandler) Create(c *gin.Context) {
 		request.AbortWithStatusJSON(c, http.StatusUnauthorized, CommonRes{Status: rescode.ErrInvalidApikey, Msg: rescode.GetCodeMsg(rescode.ErrInvalidApikey)})
 		return
 	}
-	queryKey, err := phoneLookupKey(body.Phone.Value)
+	queryKey, err := services.PhoneLookupKey(body.Phone.Value)
 	if err != nil {
 		request.JSON(c, http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 		return

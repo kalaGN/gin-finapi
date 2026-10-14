@@ -16,6 +16,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；所有 32 位字符串截前 20 位查 t。
 - JSON nonce 为必填非空字符串；签名字段为 apikey、nonce、timestamp，排序拼接后附 secret 做 MD5；无防重放去重。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
+- 查询标识规则在 `app/services/phone_lookup.go`；Handler 在 SID 和查询前调用，不改变原返回顺序。
 - `/api` 凭据来自 Redis String `gin-finapi:auth:apikey:v1:<sha256(apikey)>`，每 Key 独立 secret、status、expires_at；不读取 API_KEY/SECRET_KEY，不自动写入。
 - API Key 缺失/禁用/到期为 400/2001；产品授权缺失/禁用/到期为 403/2004；Redis 故障或损坏记录为 503/9002。
 - `app/configdata/` 统一缓存凭据、产品授权、产品映射；内存优先、未命中读 Redis，每 5 分钟后台刷新，不检查缓存年龄。
@@ -51,7 +52,8 @@ go vet cmd/init_redis.go
 ```
 
 启动依赖 `.env` 或等价环境变量；不得输出或提交真实密钥、连接串和个人数据。
-关闭顺序为 HTTP → 缓存 worker/回源 → Mongo Store → Redis；HTTP/依赖各 5s 预算，HTTP 失败强制 Close。
+限流构造不启动 worker；bootstrap 显式 Start，SetupRoute 返回的关闭函数必须由调用方执行。
+关闭顺序为 HTTP → 限流 worker → 缓存 worker/回源 → Mongo Store → Redis → 请求日志；HTTP/依赖各 5s 预算，HTTP 失败强制 Close。
 服务退出等待另有最多 5s 保护；错误返回到入口决定失败退出码，不由 goroutine Fatal。
 
 ## 渐进加载

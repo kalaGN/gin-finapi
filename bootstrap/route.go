@@ -65,7 +65,7 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
 	}
 	router := gin.New()
-	SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit, requestLog)
+	closeMiddleware := SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit, requestLog)
 	reader.Start(func(stats configdata.RefreshStats) {
 		fields := logrus.Fields{"checked": stats.Checked, "failed": stats.Failed, "duration_ms": stats.Duration.Milliseconds()}
 		if stats.Failed > 0 {
@@ -74,7 +74,9 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 			log.WithFields(fields).Debug("配置缓存刷新完成")
 		}
 	})
-	return router, closeDependencies, nil
+	return router, func(ctx context.Context) error {
+		return errors.Join(closeMiddleware(ctx), closeDependencies(ctx))
+	}, nil
 }
 
 // queryError 在装配适配边界转换存储错误，HTTP 和查询用例不依赖存储包。
@@ -97,21 +99,22 @@ func queryError(err error) error {
 	}
 }
 
-// SetupRoute 路由初始化
-func SetupRoute(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc, log *logrus.Logger, limit config.RateLimitConfig, requestLogs ...*logrus.Logger) {
+// SetupRoute 装配路由和中间件，调用方必须执行返回的关闭函数。
+func SetupRoute(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc, log *logrus.Logger, limit config.RateLimitConfig, requestLogs ...*logrus.Logger) func(context.Context) error {
 
 	// 注册全局中间件
 	requestLog := log
 	if len(requestLogs) > 0 {
 		requestLog = requestLogs[0]
 	}
-	registerGlobalMiddleWare(router, requestLog, limit)
+	closeMiddleware := registerGlobalMiddleWare(router, requestLog, limit)
 
 	//  注册 API 路由
 	routes.RegisterAPIRoutes(router, loanHandler, loanAuth)
+	return closeMiddleware
 }
 
-func registerGlobalMiddleWare(router *gin.Engine, log *logrus.Logger, limit config.RateLimitConfig) {
+func registerGlobalMiddleWare(router *gin.Engine, log *logrus.Logger, limit config.RateLimitConfig) func(context.Context) error {
 	// 异常恢复中间件（使用 Gin 内置）
 	router.Use(gin.Recovery())
 
@@ -124,4 +127,6 @@ func registerGlobalMiddleWare(router *gin.Engine, log *logrus.Logger, limit conf
 	// 全局按 IP 限流，参数由启动配置提供。
 	rateLimiter := middleware.NewRateLimiter(limit.Requests, limit.Window)
 	router.Use(rateLimiter.RateLimit())
+	rateLimiter.Start()
+	return rateLimiter.Close
 }
