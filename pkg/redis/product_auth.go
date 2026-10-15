@@ -4,21 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/app/services"
 	driver "github.com/redis/go-redis/v9"
 	"io"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func APIKeyProductRedisKey(apiKey string, pcode int) string {
-	return "gin-finapi:auth:apikey-product:v1:" + configdata.Digest(apiKey) + ":" + strconv.Itoa(pcode)
+	return "gin-finapi:auth:apikey-product:v1:" + services.Digest(apiKey) + ":" + strconv.Itoa(pcode)
 }
 
 // ReadProductAccess 只读取和解析，不启动缓存或定时任务。
-func (keys *APIKeys) ReadProductAccess(ctx context.Context, key configdata.ProductKey) (services.ProductAccess, bool, error) {
+func (keys *APIKeys) ReadProductAccess(ctx context.Context, key services.ProductKey) (services.ProductAccess, bool, error) {
 	readCtx, cancel := context.WithTimeout(ctx, keys.timeout)
 	defer cancel()
 	raw, err := keys.get(readCtx, "gin-finapi:auth:apikey-product:v1:"+key.Digest+":"+strconv.Itoa(key.Pcode))
@@ -30,7 +28,7 @@ func (keys *APIKeys) ReadProductAccess(ctx context.Context, key configdata.Produ
 	}
 	value, err := parseProductAccess(raw)
 	if err != nil {
-		return services.ProductAccess{}, false, errors.Join(services.ErrAuthUnavailable, configdata.ErrInvalidRecord)
+		return services.ProductAccess{}, false, errors.Join(services.ErrAuthUnavailable, services.ErrInvalidRecord)
 	}
 	return value, true, nil
 }
@@ -40,14 +38,14 @@ func (keys *APIKeys) LoadProduct(ctx context.Context, key string, pcode int) err
 	if key == "" || pcode < 10001 || pcode > 99999 {
 		return services.ErrProductDenied
 	}
-	value, found, err := keys.ReadProductAccess(ctx, configdata.ProductKey{Digest: configdata.Digest(key), Pcode: pcode})
+	value, found, err := keys.ReadProductAccess(ctx, services.ProductKey{Digest: services.Digest(key), Pcode: pcode})
 	if err != nil {
 		return err
 	}
 	if !found {
 		return services.ErrProductDenied
 	}
-	return validateProductAccess(value, keys.now())
+	return value.Validate(keys.now())
 }
 
 func parseProductAccess(raw string) (services.ProductAccess, error) {
@@ -92,11 +90,4 @@ func parseProductAccess(raw string) (services.ProductAccess, error) {
 		return invalid()
 	}
 	return access, nil
-}
-
-func validateProductAccess(access services.ProductAccess, now time.Time) error {
-	if access.Status != 1 || access.ExpiresAt != 0 && now.Unix() >= access.ExpiresAt {
-		return services.ErrProductDenied
-	}
-	return nil
 }

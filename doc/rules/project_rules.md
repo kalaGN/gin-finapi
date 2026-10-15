@@ -33,7 +33,7 @@
 | `pkg/redis/` | 产品映射与凭据读取器，统一选项、独立池 |
 | `pkg/rescode/`、`pkg/utils/` | 业务码、SID、时间戳和签名工具 |
 | `cmd/` | 会重建测试集合的 Mongo CLI、用 SET NX 保留已有产品映射的 Redis CLI及显式迁移 |
-| `tests/bench/` | 有外部请求副作用的 Apache Bench 脚本 |
+| `tests/bench/` | 隔离 Go 合成基准，以及不符合当前契约的历史外部 ab 脚本 |
 
 ### 非目标
 
@@ -77,7 +77,7 @@ go build -o /tmp/gin-finapi-init-redis cmd/init_redis.go
 ```text
 main.go
   → bootstrap.Run → bootstrap.NewRouter → bootstrap.SetupRoute
-  → Recovery → CORS → Logger → 进程内 IP 限流
+  → 外层 Recovery → CORS → Logger → 业务 Recovery → 进程内 IP 限流
   → GET /health
   → POST /api
       → LoanAuthWithProduct 单次 JSON/字段/API Key/时间戳/签名及产品授权校验
@@ -92,6 +92,8 @@ main.go
 LoanHandler 显式注入查询、SID 和 Logger；bootstrap 仅装配查询用例、存储错误适配、认证和限流。
 HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，查询与认证稳定语义统一来自 app/services。
 认证 ErrAuthUnavailable 与查询 ErrUnavailable 必须区分，不因合并目录而合并错误分类或数据契约。
+ProductKey、Digest、ErrInvalidRecord 及状态/到期 Validate 策略归 services；Redis 不依赖 configdata。
+Redis 负责格式解析，configdata 负责缓存/刷新，逐请求业务有效性调用同一 Validate 策略。
 未使用的 LoanRepository 接口已移除，不为本查询创建 CRUD 分层。
 
 ### 职责与依赖
@@ -285,6 +287,10 @@ go build ./...
 - `GET /health` 只证明 HTTP 进程可响应，不检查 Mongo readiness，也没有独立 liveness/readiness。
 - Mongo 客户端只在 Connect + Ping 成功后发布；初始化失败可重试，关闭后可重新初始化。
 - 限流是单进程、按 IP 的内存计数器；RATE_LIMIT_REQUESTS 默认 5000，RATE_LIMIT_WINDOW 默认 1s。
+  每 IP 独立固定窗口从首次放行起计时，到期重置；lastSeen 仅用于清理，不能让后续放行推迟窗口重置。
+  不宣称任意滑动区间都不超过额度；相邻窗口边界可出现突发。
+- 业务 Recovery 位于请求日志内部，使业务 Panic 恢复后仍生成一次完成日志；外层 Recovery 保护中间件自身。
+  未写响应的 Panic 保持 500 空体、无业务码，success/charge=0/0；已写响应按实际内容记录，不追加错误体。
 - NewRateLimiter 仅初始化；bootstrap 显式 Start 并在 HTTP 排空后 Close(ctx)，等待清理 worker 退出。
   SetupRoute 返回的关闭函数由调用方持有；构造函数不得隐式启动不可关闭的后台任务。
   次数和窗口必须为正，非法配置拒绝启动，变更后重启；多实例不共享状态。
@@ -301,6 +307,9 @@ go build ./...
 - Mongo Store 关闭不触发连接且关闭后不重开；Redis 每个读取器负责自己的池，REDIS_POOL_SIZE 不是应用总上限。
 - Health、readiness 和 liveness 的语义必须分开记录；不能把简单 `/health` 宣称为依赖就绪检查。
 - 请求日志包含方法、路径、HTTP 状态、业务码、耗时、input 和 response_data；完整载荷规则按上述授权例外执行。
+- 完成日志和 Handler 诊断日志共享服务端生成的 request_id（仅进程内唯一，不信任客户端 ID，
+  不新增响应字段/Header，不替代业务 SID）。未查得不输出异常日志；产品映射异常 WARN，
+  其他处理故障 ERROR，并使用固定 error_kind，不输出原始驱动错误或查询值。
 - 错误分类至少能区分参数、认证、未查得、依赖失败、超时和数据损坏，但契约变更需先确认。
 - 引入指标、Trace 或告警时记录名称、标签基数、采样、隐私和运维所有者，不虚构现有平台。
 
@@ -313,11 +322,14 @@ go build ./...
 7,208 req/s、P99 28 ms、失败 0。150 并发 Health 场景只完成 4,547/10,000 请求并出现连接重置。
 
 这些数据早于当前 Go/toolchain 和部分代码，测试机资源、Mongo 数据规模、日志配置及原始结果完整性
-不足以支持生产容量结论。README 中“7,000+ QPS / P99 <30ms”只能视为历史期望，不是门禁。
+不足以支持生产容量结论。历史“7,000+ QPS / P99 <30ms”不是当前门禁。
+
+2026-10-15 已建立 [进程内合成基线](../knowledge/performance_baseline_20261015.md)，
+使用当前认证、缓存和文件日志链路；不含 Redis/Mongo/网络，不替代真实依赖容量基线。
 
 ### 规则
 
-- 当前没有经确认的生产 SLO、吞吐、P95/P99 或失败率门槛，标记“待建立性能基线”。
+- 当前没有经确认的生产 SLO、吞吐、P95/P99 或失败率门槛；真实依赖/生产性能基线待建立。
 - 性能变更前先定位指标和瓶颈，不仅凭代码直觉引入缓存、池或异步机制。
 - 每次压测记录提交、Go 版本、硬件、Mongo 位置/数据量、日志级别、请求数据、并发、持续时间、
   QPS、平均/P95/P99、失败率和资源利用率。

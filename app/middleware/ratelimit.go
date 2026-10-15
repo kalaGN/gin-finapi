@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RateLimiter 简单的内存限流器
+// RateLimiter 按 IP 使用独立固定窗口计数。
 type RateLimiter struct {
 	visitors map[string]*Visitor
 	mu       sync.RWMutex
@@ -24,8 +24,9 @@ type RateLimiter struct {
 }
 
 type Visitor struct {
-	lastSeen time.Time
-	count    int
+	windowStart time.Time
+	lastSeen    time.Time
+	count       int
 }
 
 // NewRateLimiter 创建限流器
@@ -95,15 +96,19 @@ func (rl *RateLimiter) RateLimit() gin.HandlerFunc {
 func (rl *RateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+	return rl.allowLocked(ip, time.Now())
+}
 
-	now := time.Now()
+// allowLocked 的调用方必须持有访客锁；显式时间便于验证窗口边界。
+func (rl *RateLimiter) allowLocked(ip string, now time.Time) bool {
 	visitor, exists := rl.visitors[ip]
 
-	if !exists || now.Sub(visitor.lastSeen) > rl.window {
-		// 新访客或时间窗口已过期
+	if !exists || now.Sub(visitor.windowStart) >= rl.window {
+		// 固定窗口从首次放行起计时，不随之后的请求向后滑动。
 		rl.visitors[ip] = &Visitor{
-			lastSeen: now,
-			count:    1,
+			windowStart: now,
+			lastSeen:    now,
+			count:       1,
 		}
 		return true
 	}

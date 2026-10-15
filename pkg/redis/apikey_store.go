@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
@@ -32,7 +31,7 @@ type APIKeys struct {
 
 // APIKeyRedisKey derives the storage key without exposing the original credential.
 func APIKeyRedisKey(apiKey string) string {
-	return "gin-finapi:auth:apikey:v1:" + configdata.Digest(apiKey)
+	return "gin-finapi:auth:apikey:v1:" + services.Digest(apiKey)
 }
 
 // NewAPIKeys 使用统一客户端选项创建独立、懒连接的认证读取器。
@@ -67,8 +66,8 @@ func (keys *APIKeys) Load(ctx context.Context, apiKey string) (APIKeyCredential,
 	if err != nil {
 		return APIKeyCredential{}, err
 	}
-	if credential.Status != 1 || credential.ExpiresAt != 0 && keys.now().Unix() >= credential.ExpiresAt {
-		return APIKeyCredential{}, ErrAPIKeyInvalid
+	if err := credential.Validate(keys.now()); err != nil {
+		return APIKeyCredential{}, err
 	}
 	return credential, nil
 }
@@ -91,7 +90,7 @@ func (keys *APIKeys) ReadCredential(ctx context.Context, digest string) (service
 	}
 	value, err := parseAPIKeyCredential(raw)
 	if err != nil {
-		return services.Credential{}, false, errors.Join(services.ErrAuthUnavailable, configdata.ErrInvalidRecord)
+		return services.Credential{}, false, errors.Join(services.ErrAuthUnavailable, services.ErrInvalidRecord)
 	}
 	return value, true, nil
 }

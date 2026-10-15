@@ -3,8 +3,6 @@ package configdata
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"maps"
 	"sync"
@@ -14,20 +12,16 @@ import (
 	"github.com/kalaGN/gin-finapi/pkg/config"
 )
 
-type ProductKey struct {
-	Digest string
-	Pcode  int
-}
 type Sources struct {
 	Credentials []Source[string, services.Credential]
-	Products    []Source[ProductKey, services.ProductAccess]
+	Products    []Source[services.ProductKey, services.ProductAccess]
 	Maps        []Source[int, map[string]int]
 }
 
 // Reader 缓存凭据、授权和映射，但不缓存 Mongo 查询结果。
 type Reader struct {
 	credentials     *cache[string, services.Credential]
-	products        *cache[ProductKey, services.ProductAccess]
+	products        *cache[services.ProductKey, services.ProductAccess]
 	mappings        *cache[int, map[string]int]
 	root            context.Context
 	cancel          context.CancelFunc
@@ -75,19 +69,19 @@ func New(s Sources, cfg config.CacheConfig, timeout time.Duration) (*Reader, err
 	return r, nil
 }
 
-// Digest 避免原始 API Key 成为长期缓存键或进入刷新日志。
-func Digest(key string) string { sum := sha256.Sum256([]byte(key)); return hex.EncodeToString(sum[:]) }
-
 func (r *Reader) LoadCredential(ctx context.Context, key string) (services.Credential, error) {
 	if key == "" {
 		return services.Credential{}, services.ErrAPIKeyInvalid
 	}
-	value, found, err := r.credentials.load(ctx, Digest(key), false)
+	value, found, err := r.credentials.load(ctx, services.Digest(key), false)
 	if err != nil {
 		return services.Credential{}, services.ErrAuthUnavailable
 	}
-	if !found || value.Status != 1 || value.ExpiresAt != 0 && r.now().Unix() >= value.ExpiresAt {
+	if !found {
 		return services.Credential{}, services.ErrAPIKeyInvalid
+	}
+	if err := value.Validate(r.now()); err != nil {
+		return services.Credential{}, err
 	}
 	return value, nil
 }
@@ -96,12 +90,15 @@ func (r *Reader) LoadProductAccess(ctx context.Context, key string, pcode int) (
 	if key == "" || pcode < 10001 || pcode > 99999 {
 		return services.ProductAccess{}, services.ErrProductDenied
 	}
-	value, found, err := r.products.load(ctx, ProductKey{Digest(key), pcode}, false)
+	value, found, err := r.products.load(ctx, services.ProductKey{Digest: services.Digest(key), Pcode: pcode}, false)
 	if err != nil {
 		return services.ProductAccess{}, services.ErrAuthUnavailable
 	}
-	if !found || value.Status != 1 || value.ExpiresAt != 0 && r.now().Unix() >= value.ExpiresAt {
+	if !found {
 		return services.ProductAccess{}, services.ErrProductDenied
+	}
+	if err := value.Validate(r.now()); err != nil {
+		return services.ProductAccess{}, err
 	}
 	return value, nil
 }
@@ -113,7 +110,7 @@ func (r *Reader) CheckProductAccess(ctx context.Context, key string, pcode int) 
 
 func (r *Reader) LoadProductMap(ctx context.Context, pcode int) (map[string]int, error) {
 	value, found, err := r.mappings.load(ctx, pcode, false)
-	if errors.Is(err, ErrInvalidRecord) {
+	if errors.Is(err, services.ErrInvalidRecord) {
 		return nil, services.ErrProductMapping
 	}
 	if err != nil {

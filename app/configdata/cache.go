@@ -6,10 +6,9 @@ import (
 	"errors"
 	"sync"
 	"time"
-)
 
-// ErrInvalidRecord 区分损坏记录与临时故障；刷新遇到损坏记录必须清除旧快照。
-var ErrInvalidRecord = errors.New("invalid configuration record")
+	"github.com/kalaGN/gin-finapi/app/services"
+)
 
 // Source 只有明确缺失才能继续下一个数据源，错误和禁用记录都不能降级。
 type Source[K comparable, V any] func(context.Context, K) (V, bool, error)
@@ -149,7 +148,7 @@ func (c *cache[K, V]) fetch(key K, refresh bool, f *flight[V]) {
 					c.lru.Remove(e)
 				}
 			}
-		} else if f.err == nil || errors.Is(f.err, ErrInvalidRecord) {
+		} else if f.err == nil || errors.Is(f.err, services.ErrInvalidRecord) {
 			if e, ok := c.entries[key]; ok {
 				delete(c.entries, key)
 				c.lru.Remove(e)

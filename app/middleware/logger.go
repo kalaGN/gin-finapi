@@ -15,6 +15,7 @@ import (
 // Logger 按用户确认记录完整请求体和响应；不采集 Header 或 URL Query。
 func Logger(log *logrus.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		id := request.ID(c)
 		if log == nil {
 			c.Next()
 			return
@@ -46,6 +47,7 @@ func Logger(log *logrus.Logger) gin.HandlerFunc {
 				}
 			}
 			fields := logrus.Fields{
+				"request_id":    id,
 				"method":        c.Request.Method,
 				"path":          c.FullPath(),
 				"http_status":   c.Writer.Status(),

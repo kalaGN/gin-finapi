@@ -38,12 +38,13 @@ func (h *LoanHandler) Create(c *gin.Context) {
 	}
 	queryKey, err := services.PhoneLookupKey(body.Phone.Value)
 	if err != nil {
+		h.logFailure(c, "phone lookup", "phone_conversion", logrus.ErrorLevel)
 		request.JSON(c, http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 		return
 	}
 	sid, err := h.generateSID("100", 29)
 	if err != nil {
-		h.logInternalError("generate SID")
+		h.logFailure(c, "generate SID", "sid_generation", logrus.ErrorLevel)
 		request.JSON(c, http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 		return
 	}
@@ -57,24 +58,38 @@ func (h *LoanHandler) Create(c *gin.Context) {
 }
 
 func (h *LoanHandler) writeQueryError(c *gin.Context, err error) {
-	h.logInternalError("query loan data")
 	switch {
 	case errors.Is(err, services.ErrProductMapping):
+		h.logFailure(c, "query loan data", "product_mapping", logrus.WarnLevel)
 		request.JSON(c, http.StatusOK, CommonRes{Status: rescode.ErrProductException, Msg: rescode.GetCodeMsg(rescode.ErrProductException)})
 	case errors.Is(err, services.ErrUnavailable):
+		h.logFailure(c, "query loan data", "unavailable", logrus.ErrorLevel)
 		request.JSON(c, http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
 	case errors.Is(err, services.ErrNotFound):
 		request.JSON(c, http.StatusOK, CommonRes{Status: rescode.ErrDataNotFound, Msg: rescode.GetCodeMsg(rescode.ErrDataNotFound)})
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		kind := "timeout"
+		if !errors.Is(err, context.DeadlineExceeded) {
+			kind = "canceled"
+		}
+		h.logFailure(c, "query loan data", kind, logrus.ErrorLevel)
 		request.JSON(c, http.StatusGatewayTimeout, CommonRes{Status: rescode.ErrTimeout, Msg: rescode.GetCodeMsg(rescode.ErrTimeout)})
 	default:
+		kind := "internal"
+		if errors.Is(err, services.ErrInvalidData) {
+			kind = "invalid_data"
+		}
+		h.logFailure(c, "query loan data", kind, logrus.ErrorLevel)
 		request.JSON(c, http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 	}
 }
 
-func (h *LoanHandler) logInternalError(operation string) {
+func (h *LoanHandler) logFailure(c *gin.Context, operation, kind string, level logrus.Level) {
 	if h.log != nil {
-		// 驱动错误可能包含凭据或查询值，因此日志只记录操作名称。
-		h.log.WithField("operation", operation).Error("Request processing failed")
+		// 分类来自固定集合，禁止记录可能包含凭据或查询值的原始驱动错误。
+		h.log.WithFields(logrus.Fields{
+			"event": "request_processing_failed", "operation": operation,
+			"error_kind": kind, "request_id": request.ID(c),
+		}).Log(level, "Request processing failed")
 	}
 }

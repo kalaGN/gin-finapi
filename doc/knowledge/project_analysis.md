@@ -1,5 +1,14 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-15：审计项 5/6 已完成本地实现，项 8 建立隔离合成基线。未查得不再输出处理失败日志；
+> 诊断日志增加固定 error_kind，与完成日志用内部 request_id 关联，不改变响应/SID。
+> ProductKey、Digest、损坏记录语义及状态/到期策略归 services，Redis 不再引用 configdata。
+> 已建立 [当前进程内合成基线](performance_baseline_20261015.md)，真实 Redis/Mongo 与生产容量仍待验证。
+
+> 2026-10-15：限流改为每 IP 独立固定窗口，首次放行起计时，到期重置；不再按最后放行时间推迟重置。
+> 保留外层 Recovery，在 Logger 内增加业务 Recovery，业务 Panic 后仍记录一次完成日志；已写响应不改写。
+> 尚未写响应时为 500 空体、status=null、success/charge=0/0。详见 [限流窗口与异常日志](../specs/20261015-限流窗口与异常日志-设计.md)。
+
 > 2026-10-14：用户确认认证契约合并到 app/services/auth.go，旧 app/auth Go 包已移除。
 > Credential/ProductAccess 字段和 JSON 不变；认证错误使用 ErrAPIKeyInvalid、ErrAuthUnavailable、ErrProductDenied，
 > 与查询 ErrUnavailable 保持区分。下文 app/auth/credential.go 为历史来源。

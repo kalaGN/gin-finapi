@@ -13,6 +13,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - 路由：`routes/api.go`；中间件：`app/middleware/`。
 - 核心处理：LoanHandler → `app/services/product_query.go` → `pkg/mongo/store.go`（实例配置与客户端）。
 - `app/services/auth.go` 定义凭据、授权快照和认证错误；认证不可用 ErrAuthUnavailable 与查询 ErrUnavailable 分开，Handler/中间件不直接引用存储包。
+- services 同时拥有 ProductKey、Digest、ErrInvalidRecord 和状态/到期校验；Redis 不依赖 configdata。
 - `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；所有 32 位字符串截前 20 位查 t。
 - JSON nonce 为必填非空字符串；签名字段为 apikey、nonce、timestamp，排序拼接后附 secret 做 MD5；无防重放去重。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
@@ -26,6 +27,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - Redis 使用既有 REDIS_* 配置，新增 `REDIS_TIMEOUT` 默认 1s；禁止自动写入或覆盖产品映射。
 - 认证与产品映射各自拥有一个 Redis 池，REDIS_POOL_SIZE 是每池参数，不是应用总连接上限。
 - 请求日志：REQUEST_LOG_OUTPUT=file|redis，后台有界队列；redis 使用独立 CHARGE_REDIS_* 池，RPUSH request_log，失败重试两次后丢弃；尚无消费者。
+- 完成/Handler 诊断日志共享内部 request_id，不改变响应/SID；未查得不记异常，映射异常 WARN，其余固定分类 ERROR。
 - 用户确认请求日志 input 为完整 Body、response_data 为实际响应，含请求凭据；不含 Header/Query。status 为业务码，time 为毫秒整数，无顶层 msg；须限制敏感日志访问，禁止真实样本入库。
 - 测试数据 CLI：`cmd/init_mongo.go`。它会删除并重建 16 个集合，未经明确授权不得运行。
 - Redis 初始化：`cmd/init_redis.go`，SET NX 写入产品映射；`-migrate-map` 显式迁移旧 Hash，保留源及已有目标，授权后才可运行。
@@ -51,8 +53,11 @@ go test -race cmd/init_redis.go cmd/init_redis_test.go
 go vet cmd/init_redis.go
 ```
 
+隔离合成基准：`go test ./tests/bench -run '^$' -bench BenchmarkAPI -benchtime=5000x -count=3 -cpu=4`；不含真实存储容量。
+
 启动依赖 `.env` 或等价环境变量；不得输出或提交真实密钥、连接串和个人数据。
 限流构造不启动 worker；bootstrap 显式 Start，SetupRoute 返回的关闭函数必须由调用方执行。
+限流采用每 IP 独立固定窗口，到期重置；外层 Recovery 兜底、日志内部 Recovery 处理业务 Panic，完成日志记录实际响应。
 关闭顺序为 HTTP → 限流 worker → 缓存 worker/回源 → Mongo Store → Redis → 请求日志；HTTP/依赖各 5s 预算，HTTP 失败强制 Close。
 服务退出等待另有最多 5s 保护；错误返回到入口决定失败退出码，不由 goroutine Fatal。
 

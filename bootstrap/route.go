@@ -36,7 +36,7 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	}
 	reader, err := configdata.New(configdata.Sources{
 		Credentials: []configdata.Source[string, appredis.APIKeyCredential]{keys.ReadCredential},
-		Products:    []configdata.Source[configdata.ProductKey, services.ProductAccess]{keys.ReadProductAccess},
+		Products:    []configdata.Source[services.ProductKey, services.ProductAccess]{keys.ReadProductAccess},
 		Maps:        []configdata.Source[int, map[string]int]{maps.ReadProductMap},
 	}, cfg.Cache, cfg.Redis.Timeout)
 	if err != nil {
@@ -122,6 +122,8 @@ func registerGlobalMiddleWare(router *gin.Engine, log *logrus.Logger, limit conf
 
 	// 请求日志中间件
 	router.Use(middleware.Logger(log))
+	// 业务异常先恢复再记录完成日志；外层 Recovery 仍保护日志和 CORS 自身。
+	router.Use(gin.Recovery())
 
 	// 全局按 IP 限流，参数由启动配置提供。
 	rateLimiter := middleware.NewRateLimiter(limit.Requests, limit.Window)

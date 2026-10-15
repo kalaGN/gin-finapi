@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -121,4 +122,82 @@ func TestRateLimiter_CleanupPreservesActiveVisitors(t *testing.T) {
 	if err := limiter.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestRateLimiter_FixedWindowDoesNotSlide(t *testing.T) {
+	limiter := NewRateLimiter(2, 200*time.Millisecond)
+	t.Cleanup(func() {
+		if err := limiter.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	base := time.Unix(1000, 0)
+	for _, tc := range []struct {
+		offset time.Duration
+		want   bool
+	}{
+		{0, true}, {120 * time.Millisecond, true}, {199 * time.Millisecond, false},
+		{200 * time.Millisecond, true}, {201 * time.Millisecond, true}, {202 * time.Millisecond, false},
+		{400 * time.Millisecond, true},
+	} {
+		if got := limiter.allowAt("192.0.2.1", base.Add(tc.offset)); got != tc.want {
+			t.Errorf("时间=%v 放行=%v 期望=%v", tc.offset, got, tc.want)
+		}
+	}
+}
+
+func TestRateLimiter_FixedWindowIsIndependentPerIP(t *testing.T) {
+	limiter := NewRateLimiter(1, time.Second)
+	t.Cleanup(func() {
+		if err := limiter.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	base := time.Unix(1000, 0)
+	for _, tc := range []struct {
+		ip     string
+		offset time.Duration
+		want   bool
+	}{
+		{"192.0.2.1", 0, true}, {"192.0.2.2", 500 * time.Millisecond, true},
+		{"192.0.2.1", time.Second, true}, {"192.0.2.2", time.Second, false},
+		{"192.0.2.2", 1500 * time.Millisecond, true},
+	} {
+		if got := limiter.allowAt(tc.ip, base.Add(tc.offset)); got != tc.want {
+			t.Errorf("IP=%s 时间=%v 放行=%v", tc.ip, tc.offset, got)
+		}
+	}
+}
+
+func TestRateLimiter_ConcurrentWindowQuota(t *testing.T) {
+	limiter := NewRateLimiter(10, time.Second)
+	t.Cleanup(func() {
+		if err := limiter.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	base := time.Unix(1000, 0)
+	for _, now := range []time.Time{base, base.Add(time.Second)} {
+		var allowed atomic.Int64
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if limiter.allowAt("192.0.2.1", now) {
+					allowed.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		if allowed.Load() != 10 {
+			t.Fatalf("同窗口放行=%d", allowed.Load())
+		}
+	}
+}
+
+func (rl *RateLimiter) allowAt(ip string, now time.Time) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	return rl.allowLocked(ip, now)
 }

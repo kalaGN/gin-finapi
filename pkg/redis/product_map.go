@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kalaGN/gin-finapi/app/configdata"
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
 )
@@ -71,7 +71,7 @@ func (maps *ProductMaps) ReadProductMap(ctx context.Context, pcode int) (map[str
 	}
 	value, err := parseProductMap(raw)
 	if err != nil {
-		return nil, false, errors.Join(ErrProductMapping, configdata.ErrInvalidRecord)
+		return nil, false, errors.Join(ErrProductMapping, services.ErrInvalidRecord)
 	}
 	return value, true, nil
 }

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
@@ -123,18 +122,18 @@ func TestReadSourcesPreserveStatusAndClassifyInvalid(t *testing.T) {
 			var err error
 			if product {
 				var v services.ProductAccess
-				v, found, err = keys.ReadProductAccess(context.Background(), configdata.ProductKey{Digest: configdata.Digest("key"), Pcode: 10001})
+				v, found, err = keys.ReadProductAccess(context.Background(), services.ProductKey{Digest: services.Digest("key"), Pcode: 10001})
 				if found && (v.Status != 0 || v.ExpiresAt != 1) {
 					t.Fatal("source erased refusal")
 				}
 			} else {
 				var v services.Credential
-				v, found, err = keys.ReadCredential(context.Background(), configdata.Digest("key"))
+				v, found, err = keys.ReadCredential(context.Background(), services.Digest("key"))
 				if found && (v.Status != 0 || v.ExpiresAt != 1) {
 					t.Fatal("source erased refusal")
 				}
 			}
-			if found != tc.found || errors.Is(err, configdata.ErrInvalidRecord) != tc.invalid {
+			if found != tc.found || errors.Is(err, services.ErrInvalidRecord) != tc.invalid {
 				t.Fatalf("found=%v err=%v", found, err)
 			}
 			if err != nil && !errors.Is(err, services.ErrAuthUnavailable) {

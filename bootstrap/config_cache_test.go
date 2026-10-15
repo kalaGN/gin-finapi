@@ -41,7 +41,7 @@ func TestLoanWithConfigCache(t *testing.T) {
 					reads++
 					return credential, true, storageErr
 				}},
-				Products: []configdata.Source[configdata.ProductKey, services.ProductAccess]{func(context.Context, configdata.ProductKey) (services.ProductAccess, bool, error) {
+				Products: []configdata.Source[services.ProductKey, services.ProductAccess]{func(context.Context, services.ProductKey) (services.ProductAccess, bool, error) {
 					reads++
 					return services.ProductAccess{Version: 1, Status: 1}, productFound, storageErr
 				}},
@@ -98,7 +98,7 @@ func TestLoanWithConfigCache(t *testing.T) {
 			case "deleted product access":
 				productFound = false
 			case "invalid mapping":
-				mappingErr = configdata.ErrInvalidRecord
+				mappingErr = services.ErrInvalidRecord
 			}
 			reader.Refresh(ctx)
 			before := reads

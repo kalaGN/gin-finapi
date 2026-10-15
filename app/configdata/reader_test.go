@@ -20,7 +20,7 @@ func testReader(t *testing.T, s Sources, cfg config.CacheConfig) *Reader {
 		}}
 	}
 	if len(s.Products) == 0 {
-		s.Products = []Source[ProductKey, services.ProductAccess]{func(context.Context, ProductKey) (services.ProductAccess, bool, error) {
+		s.Products = []Source[services.ProductKey, services.ProductAccess]{func(context.Context, services.ProductKey) (services.ProductAccess, bool, error) {
 			return services.ProductAccess{Version: 1, Status: 1}, true, nil
 		}}
 	}
@@ -46,7 +46,7 @@ func TestReaderNoAgeTTLAndBusinessExpiry(t *testing.T) {
 	now := time.Unix(100, 0)
 	r := testReader(t, Sources{Credentials: []Source[string, services.Credential]{func(_ context.Context, key string) (services.Credential, bool, error) {
 		calls++
-		if key != Digest("key") {
+		if key != services.Digest("key") {
 			t.Error("raw API Key used in source")
 		}
 		return services.Credential{Version: 1, Secret: "secret", Status: 1, ExpiresAt: 1000}, true, nil
@@ -91,7 +91,7 @@ func TestReaderRefreshRotationDeletionFailureAndInvalid(t *testing.T) {
 		t.Fatal(stats)
 	}
 	get("new", nil)
-	readErr = ErrInvalidRecord
+	readErr = services.ErrInvalidRecord
 	r.Refresh(ctx)
 	get("", services.ErrAuthUnavailable)
 	readErr = nil
@@ -111,9 +111,9 @@ func TestReaderProductRevocationAndExpiry(t *testing.T) {
 	access := services.ProductAccess{Version: 1, Status: 1, ExpiresAt: 101}
 	calls := 0
 	now := time.Unix(100, 0)
-	r := testReader(t, Sources{Products: []Source[ProductKey, services.ProductAccess]{func(_ context.Context, key ProductKey) (services.ProductAccess, bool, error) {
+	r := testReader(t, Sources{Products: []Source[services.ProductKey, services.ProductAccess]{func(_ context.Context, key services.ProductKey) (services.ProductAccess, bool, error) {
 		calls++
-		if key != (ProductKey{Digest("key"), 10001}) {
+		if key != (services.ProductKey{Digest: services.Digest("key"), Pcode: 10001}) {
 			t.Error("wrong product key")
 		}
 		return access, true, nil
@@ -169,7 +169,7 @@ func TestReaderMappingIsolationAndRefresh(t *testing.T) {
 	if _, err := r.LoadProductMap(ctx, 10001); err != nil {
 		t.Fatal("lost last snapshot")
 	}
-	readErr = ErrInvalidRecord
+	readErr = services.ErrInvalidRecord
 	r.Refresh(ctx)
 	if _, err := r.LoadProductMap(ctx, 10001); !errors.Is(err, services.ErrProductMapping) {
 		t.Fatal(err)
@@ -372,7 +372,7 @@ func TestReaderDisabledReadsEverySourceAndNeverCaches(t *testing.T) {
 			counts[0]++
 			return credential, true, readErr
 		}},
-		Products: []Source[ProductKey, services.ProductAccess]{func(context.Context, ProductKey) (services.ProductAccess, bool, error) {
+		Products: []Source[services.ProductKey, services.ProductAccess]{func(context.Context, services.ProductKey) (services.ProductAccess, bool, error) {
 			counts[1]++
 			return access, true, readErr
 		}},
