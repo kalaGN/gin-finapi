@@ -8,14 +8,14 @@
 
 - 项目是单仓库、单 Go module、单进程 Gin HTTP 服务，不是已确认的微服务集群。
 - Go 版本以 `go.mod` 为准：`go 1.24.0`、`toolchain go1.24.10`。
-- 直接依赖包括 Gin 1.11.0、MongoDB Driver 1.17.2、go-redis 9.7.0、Logrus 1.8.1 和
+- 直接依赖包括 Gin 1.11.0、MongoDB Driver 1.17.2、go-redis 9.7.0、go-sql-driver/mysql 1.10.1、Logrus 1.8.1 和
   godotenv 1.5.1；Protobuf 由 Gin 间接依赖。
 - `go.mod`、`go.sum` 是依赖事实来源；没有其他包管理器或锁文件。
 - CI 为最小 GitHub Actions 门禁：`.github/workflows/ci.yml` 执行 `gofmt` 检查、`go vet ./...`、
   `go test -race ./...`、`go build ./...`，在 `main`/`dev` 推送和 Pull Request 时触发。
 - 未发现项目级 golangci-lint、Makefile、Dockerfile、Kubernetes、Nginx 或数据库迁移工具。
 - 当前功能边界是健康检查、按 pcode 从 Redis 读取映射并查询 MongoDB、解压后映射变量。
-  消息队列和 GraphQL 未确认进入运行链路；配置缓存已有后台刷新。
+  可选 MySQL 持久化客户/Key/产品/授权并回源、同步；消息队列和 GraphQL 未启用。
 
 ### 目录职责
 
@@ -27,9 +27,10 @@
 | `app/Http/controllers/loan/` | 已认证请求处理、复用 Context SID、调用查询标识规则和 HTTP 响应 |
 | `app/services/` | 查询编排、phone 转换、凭据/授权快照与稳定错误，不依赖 Gin 或存储实现 |
 | `app/middleware/` | CORS、日志、进程内限流、LoanAuthWithProduct |
-| `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、后台刷新及关闭 |
+| `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、显式失败回源与同步编排 |
 | `pkg/config/` | 主调用链的环境配置入口 |
 | `pkg/mongo/` | Store 实例、客户端、查询、gzip 解压和变量映射；无全局客户端入口 |
+| `pkg/mysql/` | 配置四表、secret加密、参数化SQL、只读快照与合成样例 |
 | `pkg/redis/` | 产品映射与凭据读取器，统一选项、独立池 |
 | `pkg/rescode/`、`pkg/utils/` | 业务码、SID、时间戳和签名工具 |
 | `cmd/` | 会重建测试集合的 Mongo CLI、用 SET NX 保留已有产品映射的 Redis CLI及显式迁移 |
@@ -59,6 +60,12 @@ go build -o /tmp/gin-finapi main.go
 go test -race cmd/init_redis.go cmd/init_redis_test.go
 go vet cmd/init_redis.go
 go build -o /tmp/gin-finapi-init-redis cmd/init_redis.go
+go test -race cmd/init_mysql.go cmd/init_mysql_test.go
+go test -race cmd/sync_mysql_redis.go cmd/sync_mysql_redis_test.go
+go vet cmd/init_mysql.go
+go vet cmd/sync_mysql_redis.go
+go build -o /tmp/gin-finapi-init-mysql cmd/init_mysql.go
+go build -o /tmp/gin-finapi-sync-mysql-redis cmd/sync_mysql_redis.go
 ```
 
 - `go run main.go` 需要 Redis 配置、`MONGODB_DSN`、`MONGODB_DATABASE`；真实值只通过未跟踪
@@ -83,7 +90,7 @@ main.go
       → RequestSID 生成并保存 SID（失败先返回 500/9001）
       → LoanAuthWithProduct 单次 JSON/字段/API Key/时间戳/签名及产品授权校验
       → LoanHandler 复用 SID → services.PhoneLookupKey → app/services 产品查询编排
-      → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
+      → app/configdata 内存优先，未命中 GET 产品 KV；MySQL启用后缺失/损坏/故障回源，校验字段映射
       → mongo.Store.Query（实例配置）
       → Mongo FindOne(t=phone)
       → gzip 解压 v → CSV 整数映射
@@ -94,7 +101,7 @@ LoanHandler 显式注入查询和 Logger；bootstrap 装配查询用例、存储
 HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，查询与认证稳定语义统一来自 app/services。
 认证 ErrAuthUnavailable 与查询 ErrUnavailable 必须区分，不因合并目录而合并错误分类或数据契约。
 ProductKey、Digest、ErrInvalidRecord 及状态/到期 Validate 策略归 services；Redis 不依赖 configdata。
-Redis 负责格式解析，configdata 负责缓存/刷新，逐请求业务有效性调用同一 Validate 策略。
+Redis/MySQL 负责适配，共享映射校验归 services；configdata 负责缓存/刷新/回源/同步编排，逐请求使用同一 Validate。
 未使用的 LoanRepository 接口已移除，不为本查询创建 CRUD 分层。
 
 ### 职责与依赖
@@ -112,7 +119,8 @@ Redis 负责格式解析，configdata 负责缓存/刷新，逐请求业务有�
 
 ### 未建立的边界
 
-- 当前没有应用级事务、异步消息或分布式一致性协议；配置缓存每五分钟刷新，不保证跨键原子快照。
+- 查询没有应用级事务或分布式一致性协议；MySQL样例写入用事务，快照用只读可重复读事务。
+  Redis同步用有界租约及Lua执行隔离，不承诺运行时错误回滚或跨MySQL/Redis/内存原子一致。
 - 当前没有依赖注入容器；Mongo 配置和客户端仅由 Store 持有，不再提供全局兼容入口；查询用例与 Handler 通过函数注入。
 - 新事务、异步处理或外部服务调用必须先通过 Spec 明确一致性、超时、重试和回滚。
 - 现有结构不一致应记录风险，不借局部需求擅自进行全仓重构。
@@ -151,7 +159,8 @@ Redis 负责格式解析，configdata 负责缓存/刷新，逐请求业务有�
 - nonce 必须为非空 JSON 字符串，原值签名、保留前导零；缺失/空串为 400/1001，类型错误为 400/1000。
   不接受旧四字段或五字段签名；URL Query 不替代 Body。不因参与签名就宣称已实现 nonce 防重放去重。
 - 成功数据字段由产品 String KV 的映射决定；既有六变量示例仍可配置。变更映射须核对 CSV 列序和客户端兼容。
-- 产品映射缺失或无效为 200/6001；Redis 不可用（包括读取超时）为 503/9002，不回退或误报未查得。
+- 产品映射最终缺失或无效为 200/6001；最终配置源不可用为 503/9002，不得误报未查得。
+  MYSQL_ENABLED=true 时 Redis缺失/损坏/故障回源；有效禁用/到期命中不回退，调用方取消不启动下一层。
 - 当前没有分页、版本前缀、废弃策略或幂等键约定；标记“待确认”，不能自行创建。
 - CORS 当前允许任意 Origin；是否收紧取决于真实调用方和部署环境，需先确认。
 
@@ -195,7 +204,7 @@ Redis 负责格式解析，configdata 负责缓存/刷新，逐请求业务有�
 - Goroutine 必须有清晰所有者、停止方式和生命周期；禁止不可停止的新增后台循环。
 - 外部 I/O 传递请求 Context，并设置明确超时；不得用 `context.Background()` 丢失取消传播。
 - 打开的响应体、文件、压缩流、连接和 ticker 必须在所有路径释放。
-- 读取请求、响应或解压数据必须考虑大小上限，避免无界内存增长。
+- 保留既有请求Body/日志队列边界；不擅自增加查询数据大小或字段数业务上限。大数据风险先测量，变更限制须确认。
 
 ### 依赖与生成代码
 
@@ -248,12 +257,14 @@ go build ./...
 
 - `.env` 和 `*.ini` 被 `.gitignore` 忽略；`.env.example` 只包含占位值。
 - 启动时校验 Redis 配置、Mongo DSN 和数据库名非空，不再依赖 PHONE_AES_KEY。
-- `/api` 校验五分钟时间戳、Redis API Key、原值 phone 的 MD5 签名，认证通过后原样查询。
+- `/api` 校验五分钟时间戳、API Key、apikey/nonce/timestamp 的MD5签名；phone按services规则转换后查询。
 
 ### 已确认缺口
 
-- LoanAuth 经配置读取层优先读内存，未命中读独立 Redis String 凭据，支持多 Key、独立 secret、禁用与到期；无账号层。验签后检查产品授权。
-- 凭据缺失/禁用/到期返回 400/2001；Redis 故障/损坏记录返回 503/9002，不允许环境变量兜底或自动写入。
+- LoanAuth 经配置读取层优先读内存、Redis；启用MySQL时支持客户下多Key与独立授权，验签后检查产品授权。
+- 凭据缺失/禁用/到期返回400/2001，最终源故障/损坏凭据返回503/9002；禁止环境变量凭据兜底。
+  MySQL secret须独立密钥加密，禁止原始DSN/驱动错误入日志；运行账号仅需SELECT，初始化授权单独管理。
+  不自动建表或写样例；仅用户确认的MySQL同步允许写三类Redis配置，不扩展到日志或其他业务数据。
 - 用户已明确批准请求完成日志记录完整 Body（input）及实际响应（response_data），包括请求凭据；
   不含 Header/Query。status 为业务码，无业务码为 null；time 为 Unix 毫秒整数，删除顶层 msg。
   请求超出既有 64 KiB 限制时只记录前 64 KiB 并标记 input_truncated，接口仍拒绝超限请求；传输仍需 HTTPS。
@@ -341,7 +352,7 @@ go build ./...
   QPS、平均/P95/P99、失败率和资源利用率。
 - 前后对比必须使用相同参数和数据；本地结果不得外推为生产单实例容量。
 - 修改日志 body、gzip、Mongo 查询/索引、连接池、限流、并发或序列化路径后重新压测。
-- 限制请求/响应/解压大小；列表和批处理新增前定义分页或 batch 上限，不允许无界操作。
+- 不擅自限制查询结果/解压数据/映射字段数；新增分页或批处理先评估实测内存/耗时并确认策略。
 - 连接池参数必须由并发数据和数据库容量支持；不能把默认 100/10 视为永久合理值。
 - 压测有外部副作用，只能在授权的隔离环境执行，不对生产或未知地址发流量。
 
@@ -349,18 +360,21 @@ go build ./...
 
 ### 当前数据事实
 
-- 持久化依赖为 MongoDB；没有迁移框架或正式 Schema 文件。
+- MongoDB持久化查询数据，可选MySQL持久化配置；MySQL Schema 为 pkg/mysql/schema.sql，无迁移框架。
 - 核心查询按集合字段 `t` 精确查找，字段 `v` 是 gzip 压缩的六个逗号分隔整数。
 - 初始化 CLI 为 `t` 创建唯一升序索引，并重建 `data_20251101_0` 至 `data_20251101_f`，但运行服务
   默认只读取配置指定集合；集合选择/分片规则待确认。
 - Redis String gin-finapi:product-map:v1:<pcode> 已接入核心路径，JSON 和 Mongo 数据格式不变。
   旧 Hash 必须显式迁移，不自动写入或回退；内存命中不检查年龄。
   刷新缺失/损坏移除，临时故障保留，禁用替换；持续故障时远端撤销传播无硬上限。
-  合并回源使用读取器生命周期 Context 和 REDIS_TIMEOUT，等待者独立响应请求取消。
+  合并回源使用读取器生命周期Context，预算为REDIS_TIMEOUT加已启用的MYSQL_QUERY_TIMEOUT，等待者独立响应取消。
   三类 LRU 容量独立，回源共用并发上限；不缓存失败，不无界创建刷新 goroutine。
-  MySQL 未接入，不得在故障时自动降级到低层数据源。
+  MYSQL_ENABLED 默认false；true时仅显式Fallback允许Redis缺失/损坏/故障回源MySQL，通用Source链错误即停止。
   REDIS_CACHE_ENABLED 默认 true；false 时逐请求直读，无回填、合并读取或刷新，不提供旧快照兜底。
   开关启动时读取，修改后重启生效；不得因关闭缓存而跳过授权、状态、到期或格式校验。
+  内存开关不关闭MySQL回源或同步。MYSQL_SYNC_ENABLED默认true，启动后异步一次、此后默认5m。
+  同步仅清理自身清单托管键，禁止SCAN/FLUSH或因读失败发布空快照；完整空库仍会清空托管配置，须审查目标。
+  客户/Key撤权有传播延迟，不保证立即一致；加密密钥更换先有迁移/回滚Spec，不直接替换。
 
 ### 规则
 

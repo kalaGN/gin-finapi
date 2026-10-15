@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
-	"github.com/kalaGN/gin-finapi/app/configdata"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
@@ -20,34 +19,23 @@ import (
 )
 
 // NewRouter 根据启动配置和依赖装配 HTTP 处理器与中间件。
-// Redis/MongoDB 均按需连接；调用方负责执行返回的依赖关闭函数。
+// 存储按需连接；已启用的配置同步在装配完成后启动，调用方负责关闭依赖。
 func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(context.Context) error, error) {
-	maps, err := appredis.NewProductMaps(cfg.Redis)
+	configuration, err := newConfiguration(cfg, log)
 	if err != nil {
 		return nil, nil, err
 	}
-	keys, err := appredis.NewAPIKeys(cfg.Redis)
-	if err != nil {
-		return nil, nil, errors.Join(err, maps.Close())
-	}
 	store, err := mongo.NewStore(cfg.MongoDB)
 	if err != nil {
-		return nil, nil, errors.Join(err, keys.Close(), maps.Close())
+		return nil, nil, errors.Join(err, configuration.close(context.Background()))
 	}
-	reader, err := configdata.New(configdata.Sources{
-		Credentials: []configdata.Source[string, appredis.APIKeyCredential]{keys.ReadCredential},
-		Products:    []configdata.Source[services.ProductKey, services.ProductAccess]{keys.ReadProductAccess},
-		Maps:        []configdata.Source[int, map[string]int]{maps.ReadProductMap},
-	}, cfg.Cache, cfg.Redis.Timeout)
-	if err != nil {
-		return nil, nil, errors.Join(err, store.Close(context.Background()), keys.Close(), maps.Close())
-	}
+	reader := configuration.reader
 	requestLog, closeRequestLog, err := applogger.NewRequestLogger(log, cfg.RequestLog, cfg.ChargeRedis)
 	if err != nil {
-		return nil, nil, errors.Join(err, reader.Close(context.Background()), store.Close(context.Background()), keys.Close(), maps.Close())
+		return nil, nil, errors.Join(err, configuration.close(context.Background()), store.Close(context.Background()))
 	}
 	closeDependencies := func(ctx context.Context) error {
-		return errors.Join(reader.Close(ctx), store.Close(ctx), keys.Close(), maps.Close(), closeRequestLog(ctx))
+		return errors.Join(configuration.stop(ctx), configuration.closeMySQL(), store.Close(ctx), configuration.closeRedis(), closeRequestLog(ctx))
 	}
 	query, err := services.NewQuery(func(ctx context.Context, pcode int) (map[string]int, error) {
 		mapping, err := reader.LoadProductMap(ctx, pcode)
@@ -65,14 +53,7 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	}
 	router := gin.New()
 	closeMiddleware := SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit, requestLog)
-	reader.Start(func(stats configdata.RefreshStats) {
-		fields := logrus.Fields{"checked": stats.Checked, "failed": stats.Failed, "duration_ms": stats.Duration.Milliseconds()}
-		if stats.Failed > 0 {
-			log.WithFields(fields).Warn("配置缓存刷新部分失败，已按错误分类保留或清除快照")
-		} else {
-			log.WithFields(fields).Debug("配置缓存刷新完成")
-		}
-	})
+	configuration.start(log)
 	return router, func(ctx context.Context) error {
 		return errors.Join(closeMiddleware(ctx), closeDependencies(ctx))
 	}, nil

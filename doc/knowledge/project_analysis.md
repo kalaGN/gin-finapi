@@ -1,5 +1,11 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-15 MySQL：新增配置四表，一个客户多个 API Key，secret 以独立密钥加密；
+> MYSQL_ENABLED 默认 false，开启后 Redis 缺失/损坏/故障回源 MySQL，有效禁用/到期不回退。
+> 定时同步在 MySQL 启用时默认开启，启动异步一次、此后5m，只清理托管键；不保证立即撤权。
+> 本地 fin_api 已建表并写入合成样例，临时 Redis 已验证同步及回源，未写业务 Redis。
+> 下文“MySQL未接入”“无账号层”等为历史描述，详见 [当前配置知识](mysql_configuration.md)。
+
 > 2026-10-15 后续：按用户要求将 SID 生成前移至 `/api` 认证前（全局限流之后）。
 > Handler 仅依赖查询与日志，从 Context 复用 SID；认证/参数失败完成日志也含 sid，错误响应仍空 sid。
 > SID 生成失败先返回 500/9001，不读取认证源或 Mongo。此前“phone 转换前不生成 SID”描述为历史顺序。

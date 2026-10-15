@@ -16,6 +16,7 @@ type AppConfig struct {
 	Cache       CacheConfig
 	RequestLog  RequestLogConfig
 	ChargeRedis RedisConfig
+	MySQL       MySQLConfig
 }
 
 // RateLimitConfig configures the existing per-process, per-IP limiter.
@@ -63,6 +64,10 @@ var Config *AppConfig
 
 // Load 从环境变量加载配置
 func Load() error {
+	mysql, err := loadMySQLConfig()
+	if err != nil {
+		return err
+	}
 	requestLog, chargeRedis, err := loadRequestLog()
 	if err != nil {
 		return err
@@ -111,6 +116,7 @@ func Load() error {
 		Cache:       cache,
 		RequestLog:  requestLog,
 		ChargeRedis: chargeRedis,
+		MySQL:       mysql,
 	}
 
 	return nil
@@ -136,6 +142,9 @@ func getEnvIntWithDefault(key string, defaultValue int) int {
 
 // Validate 验证配置
 func (c *AppConfig) Validate() error {
+	if err := c.MySQL.Validate(); err != nil {
+		return err
+	}
 	if err := c.RequestLog.Validate(); err != nil {
 		return err
 	}

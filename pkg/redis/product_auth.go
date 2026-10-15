@@ -12,14 +12,18 @@ import (
 )
 
 func APIKeyProductRedisKey(apiKey string, pcode int) string {
-	return "gin-finapi:auth:apikey-product:v1:" + services.Digest(apiKey) + ":" + strconv.Itoa(pcode)
+	return ProductAccessRedisKey(services.ProductKey{Digest: services.Digest(apiKey), Pcode: pcode})
+}
+
+func ProductAccessRedisKey(key services.ProductKey) string {
+	return "gin-finapi:auth:apikey-product:v1:" + key.Digest + ":" + strconv.Itoa(key.Pcode)
 }
 
 // ReadProductAccess 只读取和解析，不启动缓存或定时任务。
 func (keys *APIKeys) ReadProductAccess(ctx context.Context, key services.ProductKey) (services.ProductAccess, bool, error) {
 	readCtx, cancel := context.WithTimeout(ctx, keys.timeout)
 	defer cancel()
-	raw, err := keys.get(readCtx, "gin-finapi:auth:apikey-product:v1:"+key.Digest+":"+strconv.Itoa(key.Pcode))
+	raw, err := keys.get(readCtx, ProductAccessRedisKey(key))
 	if errors.Is(err, driver.Nil) {
 		return services.ProductAccess{}, false, nil
 	}

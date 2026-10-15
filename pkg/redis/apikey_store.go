@@ -31,8 +31,10 @@ type APIKeys struct {
 
 // APIKeyRedisKey derives the storage key without exposing the original credential.
 func APIKeyRedisKey(apiKey string) string {
-	return "gin-finapi:auth:apikey:v1:" + services.Digest(apiKey)
+	return CredentialRedisKey(services.Digest(apiKey))
 }
+
+func CredentialRedisKey(digest string) string { return "gin-finapi:auth:apikey:v1:" + digest }
 
 // NewAPIKeys 使用统一客户端选项创建独立、懒连接的认证读取器。
 func NewAPIKeys(cfg config.RedisConfig) (*APIKeys, error) {
@@ -81,7 +83,7 @@ func (keys *APIKeys) Close() error {
 func (keys *APIKeys) ReadCredential(ctx context.Context, digest string) (services.Credential, bool, error) {
 	readCtx, cancel := context.WithTimeout(ctx, keys.timeout)
 	defer cancel()
-	raw, err := keys.get(readCtx, "gin-finapi:auth:apikey:v1:"+digest)
+	raw, err := keys.get(readCtx, CredentialRedisKey(digest))
 	if errors.Is(err, driver.Nil) {
 		return services.Credential{}, false, nil
 	}

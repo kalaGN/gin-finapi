@@ -6,6 +6,9 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`specs/20261015-MySQL配置回源同步-设计.md`](specs/20261015-MySQL配置回源同步-设计.md) | Specs / 设计 | MySQL四表、加密凭据、Redis失败回源与默认定时同步 | 配置数据、授权、同步 |
+| [`specs/20261015-MySQL配置回源同步-任务.md`](specs/20261015-MySQL配置回源同步-任务.md) | Specs / 任务 | 实施顺序、真实本地验证与质量门禁 | 实施与验收 |
+| [`knowledge/mysql_configuration.md`](knowledge/mysql_configuration.md) | Knowledge | 四表、配置链、操作与一致性边界 | MySQL/Redis配置维护 |
 | [`specs/20261015-认证前生成SID-设计.md`](specs/20261015-认证前生成SID-设计.md) | Specs / 设计 | SID 前移认证前、Handler/日志复用 | 请求时序与日志关联 |
 | [`specs/20261015-限流窗口与异常日志-设计.md`](specs/20261015-限流窗口与异常日志-设计.md) | Specs / 设计 | 独立 IP 固定窗口及业务 Panic 完成日志 | 限流边界与异常响应日志 |
 | [`specs/20261014-认证契约合并-设计.md`](specs/20261014-认证契约合并-设计.md) | Specs / 设计 | 凭据/授权类型与认证错误合并至 services，保留契约 | 认证引用与包职责维护 |

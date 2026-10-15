@@ -1,10 +1,11 @@
 # Gin FinAPI
 
-基于 Gin 的 HTTP 查询服务：Redis 提供 API Key 凭据、产品授权与变量映射，MongoDB 保存 gzip/CSV 数据。
+基于 Gin 的 HTTP 查询服务：Redis 提供 API Key 凭据、产品授权与变量映射，MongoDB 保存 gzip/CSV 数据；可选 MySQL 持久化配置、回源与同步。
 当前接口为 `GET /health` 和 `POST /api`；开发规则与详细设计见 [文档索引](doc/README.md)。
 
 ## 当前实现（2026-10-15）
 
+- 增加 MySQL 客户/Key/产品/授权四表，一个客户可有多个 Key；启用后 Redis 缺失或故障回源 MySQL，默认每5分钟同步到 Redis。见 [操作说明](cmd/README.md#mysql-配置初始化与同步)。
 - `/api` 经中间件在认证前生成 SID，Handler 复用它并调用 `app/services/phone_lookup.go` 转换查询标识；查询规则不变。
 - 限流器通过 `Start/Close` 管理清理任务，由 bootstrap 启动并在 HTTP 排空后关闭。
 - 请求日志支持异步写文件或独立 Redis，记录完整请求体、实际响应、业务状态、success/charge 和毫秒时间。
@@ -29,6 +30,7 @@
 - **Gin v1.11.0** - Web 框架
 - **MongoDB** - 数据库（支持连接池）
 - **Redis** - String KV 存储凭据、产品授权和 `gin-finapi:product-map:v1:<pcode>` 映射
+- **MySQL（可选）** - 配置持久化，`database/sql` + `go-sql-driver/mysql v1.10.1`；本地验证版本9.6.0
 - **Logrus** - 日志系统
 - **godotenv** - 环境变量管理
 
@@ -39,13 +41,14 @@ gin-finapi/
 ├── app/
 │   ├── Http/controllers/loan/ # LoanHandler：已认证请求、查询与 HTTP 响应
 │   ├── services/             # 产品查询、phone 转换、凭据/授权快照与业务错误
-│   ├── configdata/           # 内存优先读取、LRU、回源合并与后台刷新
+│   ├── configdata/           # 内存优先读取、LRU、Redis→MySQL回源与同步编排
 │   └── middleware/           # 认证、CORS、日志与可关闭的 IP 限流
 ├── bootstrap/                # 依赖装配、HTTP 生命周期和资源关闭
 ├── pkg/
 │   ├── config/               # 环境配置加载与校验
 │   ├── logger/               # 应用日志、异步请求日志与 JSON 格式
 │   ├── mongo/                # Store、客户端生命周期和 gzip/CSV 解码
+│   ├── mysql/                # 配置四表、加密、读取、快照与合成样例
 │   ├── redis/                # 凭据、授权、产品映射读取与客户端配置
 │   ├── request/              # HTTP DTO、严格类型解析与响应出口
 │   ├── rescode/              # 对外业务码和文案
@@ -125,7 +128,10 @@ REDIS_TIMEOUT=1s
 
 ### 3. 运行项目
 
-启动前须由受控流程准备 Redis 凭据、产品授权、变量映射及 Mongo 数据；应用不自动初始化数据。
+启动前须由受控流程准备配置与 Mongo 数据；应用不自动建表或初始化样例。
+`MYSQL_ENABLED=false` 为默认 Redis-only 模式；启用 MySQL 时须配置连接与独立加密密钥，
+`MYSQL_SYNC_ENABLED=true` 默认启动后异步同步一次、此后每5分钟覆盖同名 Redis 配置。
+首次使用先按 [MySQL 操作说明](cmd/README.md#mysql-配置初始化与同步) 检查目标、初始化及 dry-run。
 工具说明见 [cmd/README.md](cmd/README.md)。`init_mongo.go` 会删除并重建 16 个集合，未经明确授权不得执行。
 
 **开发环境：**
@@ -199,7 +205,7 @@ apikey=...&nonce=...&timestamp=...&key=<secret>
 nonce 必须是非空 JSON 字符串，保留前导零，不转成数字；缺失/空串为 400/1001，类型错误为 400/1000。
 不接受旧四字段或五字段签名，客户端须同步更新；本次未增加 nonce 去重，仍不能阻止窗口内的重复请求。
 pcode、phone 不参与签名，但仍校验业务参数和产品授权；签名不保护这两个字段的完整性。
-请求 apikey 必须对应 Redis 中启用且未到期的凭据，且对请求 pcode 有启用授权；timestamp 为过去五分钟内的 Unix 毫秒。
+请求 apikey 必须对应有效配置源中启用且未到期的凭据，且对请求 pcode 有启用授权；timestamp 为过去五分钟内的 Unix 毫秒。
 上面的 timestamp 和 sign 只是结构示意，联调时需要实时生成。
 [设计与请求示例](doc/specs/20261011-请求加密鉴权-设计.md)。
 
@@ -210,8 +216,10 @@ URL 参数不参与 JSON 验签，不替代 JSON nonce；PHONE_AES_KEY 不再读
 API Key 产品授权从 Redis String `gin-finapi:auth:apikey-product:v1:<sha256(apikey)>:<pcode>` 读取，
 Value 为 `{"version":1,"status":1,"expires_at":0}`。凭据、授权和产品映射统一经 `app/configdata` 读取：
 内存优先，未命中读 Redis 并回填，每 5 分钟后台刷新已缓存项；请求不判断缓存年龄。
-`REDIS_CACHE_ENABLED=false` 关闭三类内存缓存，每次请求直接读 Redis，不回填、不合并回源、不启动刷新任务。
-默认 `true`；修改后重启生效。关闭时 Redis 故障直接返回服务异常，没有旧快照兜底；认证与到期检查不变。
+`MYSQL_ENABLED=true` 时，Redis 缺失、损坏、连接故障或自身超时后读取 MySQL；有效禁用/到期记录不回退。
+关闭 MySQL 时保持原行为。请求回源不写 Redis，成功可回填内存；调用方取消后不启动下一层读取。
+`REDIS_CACHE_ENABLED=false` 关闭三类内存缓存，不回填、不合并读取、不启动 L1 刷新，但仍保留已启用的 MySQL 回源。
+默认 `true`；修改后重启生效。两层存储均不可用才返回服务异常，没有旧内存快照兜底；认证与到期检查不变。
 授权缺失、禁用或到期返回 HTTP 403/2004；回源故障或损坏授权返回 HTTP 503/9002。
 状态与业务到期时间每次请求检查。后台临时故障保留旧快照；明确删除或损坏清除旧值，禁用替换为拒绝状态。
 撤销/轮换通常在下一轮同步完成后生效；持续故障时传播延迟无硬上限，不适合立即撤销。
@@ -272,8 +280,8 @@ Value 为 `{"version":1,"status":1,"expires_at":0}`。凭据、授权和产品�
 ### 产品变量映射
 
 开启缓存时，`/api` 按 `pcode` 读内存，未命中执行 `GET gin-finapi:product-map:v1:<pcode>`；关闭时每次 GET。value 是字段名到 CSV 索引的 JSON。
-Redis 已是业务必需依赖；客户端懒连接，`/health` 不检查 Redis/Mongo。
-仅在独立测试环境人工确认后准备如下映射，应用不自动写入或覆盖配置：
+Redis 客户端懒连接，`/health` 不检查配置源或Mongo；启用MySQL后可在Redis故障时回源。
+Redis-only 模式仅在独立测试环境人工确认后准备如下映射；启用MySQL同步则由MySQL维护同名映射：
 
 ```text
 SET gin-finapi:product-map:v1:10001 '{"var100001":0,"var100002":1,"var100003":2,"var100004":3,"var100005":4,"var100006":5}' NX
@@ -286,11 +294,11 @@ SET gin-finapi:product-map:v1:10001 '{"var100001":0,"var100002":1,"var100003":2,
 验证目标 KV；迁移保留旧 Hash 和已有目标，支持旧版本回滚。应用不会自动执行迁移。
 
 映射必须为非空 JSON 对象，字段名非空、索引为非负整数；重复字段、null、小数和溢出索引拒绝。
-映射缺失或无效返回 HTTP 200/status 6001/产品异常；Redis 读失败或超时返回 HTTP 503/status 9002。
-不使用硬编码回退。缓存容量默认值仅为初始保护值，不是生产容量结论；MySQL 尚未接入。
+最终映射缺失或无效返回 HTTP 200/status 6001/产品异常；最终源不可用返回 HTTP 503/status 9002。
+不使用硬编码回退。缓存容量默认值仅为初始保护值，不是生产容量结论。
 Mongo t/v、gzip/CSV 格式不变，CSV 长度仍必须等于最大映射索引加一。
 `main` 只处理信号和退出码，`bootstrap.Run` 装配并管理运行；启动或服务失败也进入依赖清理。
-正常关闭为 HTTP → 限流 worker → 配置缓存 worker/回源 → Mongo Store → Redis → 请求日志，
+正常关闭为 HTTP → 限流 → MySQL同步 → 配置缓存/回源 → MySQL → Mongo Store → Redis → 请求日志，
 HTTP/依赖各有独立 5s 预算；HTTP Shutdown 失败时强制 Close。
 服务 goroutine 退出等待另设 5s 保护，整个过程不承诺严格 10s 硬上限；需匹配部署终止宽限时间。
 Mongo 仅通过 Store 实例查询和关闭，不读取全局配置；已移除旧 GetMongo/GetClient/包级 Close 入口。
@@ -419,10 +427,10 @@ String Value 严格使用以下 JSON，示例仅为占位：
 
 status 为 0/1；expires_at 为 Unix 秒，0 永不过期，当前时间达到到期值即拒绝。
 secret 为 1–256 字节，记录最大 4 KiB；拒绝缺失、重复、未知字段和错误类型。
-未知、禁用、到期 Key 返回 HTTP 400/status 2001；Redis 故障或记录损坏返回 503/9002。
-服务不自动创建记录，也不回退环境变量。请在部署切换前确认目标 Redis 并迁移旧凭据；
-使用受控工具 SET NX 导入，避免覆盖；配置存储需具备持久化、备份和防淘汰措施。
-API Key–产品授权需要在部署前写入 Redis；初始化样例工具可在显式参数授权下写入测试授权，生产授权由受控流程维护。
+未知、禁用、到期 Key 返回 HTTP 400/status 2001；最终源故障或损坏凭据返回 503/9002。
+服务不回退环境变量凭据。Redis-only 部署使用受控工具 SET NX 导入凭据和授权；
+启用MySQL时先核对同步目标，启动后会覆盖同名配置。配置存储需具备持久化、备份和防淘汰措施。
+初始化样例仅供显式授权的测试环境，生产客户/Key/授权由受控流程维护。
 
 ## 许可证
 

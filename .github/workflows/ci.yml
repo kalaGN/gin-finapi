@@ -42,3 +42,12 @@ jobs:
           go vet cmd/init_redis.go
           go test -race cmd/init_redis.go cmd/init_redis_test.go
           go build -o /tmp/gin-finapi-init-redis cmd/init_redis.go
+
+      - name: Check standalone MySQL tools
+        run: |
+          go vet cmd/init_mysql.go
+          go test -race cmd/init_mysql.go cmd/init_mysql_test.go
+          go build -o /tmp/gin-finapi-init-mysql cmd/init_mysql.go
+          go vet cmd/sync_mysql_redis.go
+          go test -race cmd/sync_mysql_redis.go cmd/sync_mysql_redis_test.go
+          go build -o /tmp/gin-finapi-sync-mysql-redis cmd/sync_mysql_redis.go

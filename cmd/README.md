@@ -1,5 +1,69 @@
 # 数据初始化工具
 
+## MySQL 配置初始化与同步
+
+四表定义见 [`pkg/mysql/schema.sql`](../pkg/mysql/schema.sql)。只持久化客户、API Key、产品与授权，
+不修改 Mongo 格式、不清库、不新增计费账本。命令均从仓库根目录执行。
+
+先确认 MYSQL_HOST/PORT/DATABASE、账号权限及目标 Redis/DB，填写忽略的 `.env`：
+MYSQL_ENABLED=true、连接项、独立 MYSQL_SECRET_KEY（随机32字节的Base64）及 MYSQL_SECRET_KEY_ID。
+模板见 [`.env.example`](../.env.example)。不要把实际密码或密钥写入命令、脚本或文档。
+默认 TLS verify_identity；仅明确隔离的本机可显式 disabled，远端应配置受信CA/证书名。
+运行服务只需四表 SELECT；建表/初始化使用受控DDL/INSERT权限账号，不建议应用使用 root。
+
+以下命令**写 MySQL**，执行前须取得目标库授权；不创建数据库、不覆盖已有表或行：
+
+```bash
+go run cmd/init_mysql.go -schema-only
+go run cmd/init_mysql.go
+```
+
+已有表不会被自动升级，须核对其结构；DDL跨语句不具事务，部分建表失败可审查后重试。
+样例在事务内添加缺失行，固定ID与非样例冲突即回滚；不重新启用/重设已有secret或映射。
+公开合成样例（禁止用于生产）：
+
+| 客户ID | API Key | secret | 允许产品 |
+| --- | --- | --- | --- |
+| 1 | example-test-key | example-test-secret | 10001、10002 |
+| 1 | example-test-key-2 | example-test-secret-2 | 10001 |
+
+两产品均使用 init_redis 的六变量映射。保存的是 Key 摘要和加密secret，原 Key 不能从表中取回。
+密钥必须备份；当前仅单KeyID，不能直接更换 MYSQL_SECRET_KEY，否则已有记录无法解密。
+
+同步先 dry-run（只读 MySQL、不连接Redis），核对数量与目标后再明确授权执行 apply：
+
+```bash
+go run cmd/sync_mysql_redis.go
+go run cmd/sync_mysql_redis.go -apply
+```
+
+apply 会覆盖 MySQL 中同名实体的三类 Redis String，清理先前本工具托管、现已从MySQL删除的键；
+不清理未托管键，不操作旧 mongo_map 或 request_log；完整空库将清空既有托管配置，须谨慎审核。
+发布租约/清单见 [配置知识](../doc/knowledge/mysql_configuration.md)，只支持当前单Redis实例。
+失败不可据此认定未写入：Lua运行时错误不回滚、网络错误可能结果未知；修复后幂等重跑。
+MYSQL_SYNC_ENABLED 默认 true（仅MySQL启用时），应用启动异步一次、每5m同步；
+如先检查而不发布，在启动应用前显式设为false。修改开关/周期需重启，命令无需启用定时开关。
+只关闭内存缓存不会关闭MySQL回源或同步；其他进程内存的更新仍有传播延迟。
+
+离线质量门禁（无数据库写入）：
+
+```bash
+go test -race cmd/init_mysql.go cmd/init_mysql_test.go
+go test -race cmd/sync_mysql_redis.go cmd/sync_mysql_redis_test.go
+go vet cmd/init_mysql.go
+go vet cmd/sync_mysql_redis.go
+go build -o /tmp/gin-finapi-init-mysql cmd/init_mysql.go
+go build -o /tmp/gin-finapi-sync-mysql-redis cmd/sync_mysql_redis.go
+```
+
+真实集成需本地授权 fin_api 样例及 redis-server；下列显式开关只读该库并创建临时Redis进程，
+不连接既有业务Redis，不运行Mongo初始化。默认全量测试不接触本机数据。
+
+```bash
+FINAPI_LOCAL_MYSQL_TEST=1 go test -race -tags integration ./pkg/mysql -run '^TestLocalMySQL' -v
+FINAPI_LOCAL_MYSQL_TEST=1 go test -race -tags integration ./bootstrap -run '^TestLocalMySQL' -v
+```
+
 ## Redis 产品变量映射
 
 `init_redis.go` 将六变量 JSON 写入 Redis String `gin-finapi:product-map:v1:<pcode>`，产品默认为 `10001`。
