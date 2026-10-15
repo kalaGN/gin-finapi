@@ -5,7 +5,7 @@
 
 ## 当前实现（2026-10-15）
 
-- phone 查询标识转换位于 `app/services/phone_lookup.go`，Handler 在生成 SID 前调用；查询规则和错误码不变。
+- `/api` 经中间件在认证前生成 SID，Handler 复用它并调用 `app/services/phone_lookup.go` 转换查询标识；查询规则不变。
 - 限流器通过 `Start/Close` 管理清理任务，由 bootstrap 启动并在 HTTP 排空后关闭。
 - 请求日志支持异步写文件或独立 Redis，记录完整请求体、实际响应、业务状态、success/charge 和毫秒时间。
 - 限流采用每 IP 独立固定窗口；业务 Panic 先恢复再记录完成日志，已写响应不被覆盖。见 [修复设计](doc/specs/20261015-限流窗口与异常日志-设计.md)。
@@ -37,7 +37,7 @@
 ```
 gin-finapi/
 ├── app/
-│   ├── Http/controllers/loan/ # LoanHandler：已认证请求、SID 与 HTTP 响应
+│   ├── Http/controllers/loan/ # LoanHandler：已认证请求、查询与 HTTP 响应
 │   ├── services/             # 产品查询、phone 转换、凭据/授权快照与业务错误
 │   ├── configdata/           # 内存优先读取、LRU、回源合并与后台刷新
 │   └── middleware/           # 认证、CORS、日志与可关闭的 IP 限流
@@ -347,7 +347,10 @@ Apifox 导入见 [用例说明](tests/APIFOX.md)。数据测试只能指向专�
 
 ## 日志
 
-请求完成日志与 Handler 诊断日志通过内部 `request_id` 关联（进程内唯一，不回传客户端）。
+请求完成日志与 Handler 诊断日志统一通过 `sid` 关联；已删除 `request_id` 字段及生成逻辑。
+`/api` 在认证前生成一次 SID，完成/诊断日志增加 `sid`，认证或参数失败也能关联。
+成功响应复用该 SID，失败响应仍保留空 `sid`；生成失败先返回 `500/9001`，不认证、不查询。
+SID 生成在全局限流之后；health、404、预检、限流拒绝及生成失败的日志 `sid` 为空，没有逐请求关联标识。
 正常未查得不输出异常日志，产品映射异常使用 WARN，其余故障通过固定 `error_kind` 分类；不记录原始驱动错误。
 
 项目使用 Logrus 进行结构化日志记录：

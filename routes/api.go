@@ -15,13 +15,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterAPIRoutes 注册网页相关路由
-func RegisterAPIRoutes(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc) {
+// RegisterAPIRoutes 注册健康检查及 SID → 认证 → 业务处理链。
+func RegisterAPIRoutes(router *gin.Engine, loanHandler, loanAuth, loanSID gin.HandlerFunc) {
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
 
 	// Loan 业务接口统一挂在 /api 入口。
-	router.POST("/api", loanAuth, loanHandler)
+	router.POST("/api", loanSID, loanAuth, loanHandler)
 }

@@ -65,7 +65,7 @@ func TestLoanHandler_SHA256WaitsForConversionService(t *testing.T) {
 	response := performCreate(t, string(data), func(context.Context, string, int) (map[string]int, error) {
 		t.Fatal("query called before conversion service is available")
 		return nil, nil
-	}, func(string, int) (string, error) { t.Fatal("SID called before conversion"); return "", nil }, testSecret)
+	}, successfulSID, testSecret)
 	if response.Code != http.StatusServiceUnavailable || decodeResponse(t, response).Status != rescode.ErrServiceUnavailable {
 		t.Fatalf("HTTP=%d, response=%s", response.Code, response.Body)
 	}
@@ -204,18 +204,18 @@ func TestCreate_HandlesSIDGenerationFailure(t *testing.T) {
 	}
 }
 
-func performCreate(t *testing.T, body string, query QueryFunc, sid SIDFunc, secret string) *httptest.ResponseRecorder {
+func performCreate(t *testing.T, body string, query QueryFunc, sid func(string, int) (string, error), secret string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	request := httptest.NewRequest(http.MethodPost, "/api", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	handler, err := NewLoanHandler(query, sid, nil)
+	handler, err := NewLoanHandler(query, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("key", secret), nil))
+	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("key", secret), nil), middleware.RequestSID(sid, nil))
 	router.ServeHTTP(response, request)
 	return response
 }
@@ -269,12 +269,12 @@ func TestLoanHandler_UsesLookupKeyAndRequestContext(t *testing.T) {
 			t.Fatal("query did not receive lookup key and canceled context")
 		}
 		return nil, ctx.Err()
-	}, successfulSID, nil)
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("key", testSecret), nil))
+	routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("key", testSecret), nil), middleware.RequestSID(successfulSID, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	req := httptest.NewRequest("POST", "/api", strings.NewReader(validRequestBody(t))).WithContext(ctx)
@@ -292,7 +292,7 @@ func TestLoanHandler_UsesLookupKeyAndRequestContext(t *testing.T) {
 }
 
 func TestLoanHandler_FailsClosedWithoutMiddleware(t *testing.T) {
-	handler, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) { t.Fatal("query called"); return nil, nil }, successfulSID, nil)
+	handler, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) { t.Fatal("query called"); return nil, nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,27 @@ func TestLoanHandler_FailsClosedWithoutMiddleware(t *testing.T) {
 	if w.Code != 401 {
 		t.Fatalf("HTTP = %d", w.Code)
 	}
-	if _, err := NewLoanHandler(nil, successfulSID, nil); err == nil {
+	if _, err := NewLoanHandler(nil, nil); err == nil {
 		t.Fatal("missing dependency accepted")
+	}
+}
+
+func TestLoanHandlerMissingSIDDoesNotQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) {
+		t.Fatal("缺少 SID 不得查询")
+		return nil, nil
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := gin.New()
+	r.POST("/api", middleware.LoanAuthWithProduct(testKeyReader("key", testSecret), nil), handler.Create)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api", strings.NewReader(validRequestBody(t)))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != 500 || decodeResponse(t, w).Status != rescode.ErrInternalError {
+		t.Fatalf("缺少 SID 时响应=%s", w.Body)
 	}
 }

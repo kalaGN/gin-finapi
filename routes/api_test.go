@@ -11,7 +11,7 @@ import (
 func TestRegisterAPIRoutes_Health(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	RegisterAPIRoutes(router, func(c *gin.Context) { c.Status(http.StatusOK) }, func(c *gin.Context) { c.AbortWithStatus(http.StatusUnauthorized) })
+	RegisterAPIRoutes(router, func(c *gin.Context) { c.Status(http.StatusOK) }, func(c *gin.Context) { c.AbortWithStatus(http.StatusUnauthorized) }, func(c *gin.Context) { t.Fatal("health 不应生成 SID") })
 
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()
@@ -28,7 +28,7 @@ func TestRegisterAPIRoutes_Health(t *testing.T) {
 func TestRegisterAPIRoutes_LoanUsesAPIPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	RegisterAPIRoutes(router, func(c *gin.Context) { c.Status(http.StatusNoContent) }, func(c *gin.Context) { c.Next() })
+	RegisterAPIRoutes(router, func(c *gin.Context) { c.Status(http.StatusNoContent) }, func(c *gin.Context) { c.Next() }, func(c *gin.Context) { c.Next() })
 
 	for _, tt := range []struct {
 		path string

@@ -47,13 +47,13 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			log.SetFormatter(applogger.RequestFormatter{})
 			handler, err := loan.NewLoanHandler(func(context.Context, string, int) (map[string]int, error) {
 				return map[string]int{"var100001": 1}, tc.queryErr
-			}, func(string, int) (string, error) { return "test-sid", nil }, nil)
+			}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			r := gin.New()
 			r.Use(Logger(log))
-			r.POST("/api", LoanAuthWithProduct(func(context.Context, string) (services.Credential, error) {
+			r.POST("/api", RequestSID(func(string, int) (string, error) { return "test-sid", nil }, nil), LoanAuthWithProduct(func(context.Context, string) (services.Credential, error) {
 				return services.Credential{Secret: "test-secret"}, tc.keyErr
 			}, func(context.Context, string, int) error { return tc.grantErr }), handler.Create)
 			body := map[string]interface{}{"phone": strings.Repeat("r", 32), "pcode": 10001, "apikey": "test-key", "nonce": "0001", "timestamp": time.Now().UnixMilli()}
@@ -80,6 +80,7 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			}
 			assertResultLog(t, output.Bytes(), tc.success, tc.charge)
 			var row struct {
+				SID          string          `json:"sid"`
 				Input        json.RawMessage `json:"input"`
 				ResponseData json.RawMessage `json:"response_data"`
 				Status       int             `json:"status"`
@@ -87,7 +88,7 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			if err := json.Unmarshal(output.Bytes(), &row); err != nil {
 				t.Fatal(err)
 			}
-			if row.Status != tc.code {
+			if row.Status != tc.code || row.SID != "test-sid" {
 				t.Fatalf("日志status=%d", row.Status)
 			}
 			var input, response map[string]interface{}
@@ -128,6 +129,9 @@ func assertResultLog(t *testing.T, data []byte, success, charge int) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
+	}
+	if _, exists := fields["request_id"]; exists {
+		t.Fatal("日志不应再包含 request_id")
 	}
 	if _, exists := fields["msg"]; exists {
 		t.Fatal("日志不应包含顶层 msg")

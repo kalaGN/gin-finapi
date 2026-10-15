@@ -86,7 +86,7 @@ func benchmarkAPI(b *testing.B, disabled bool, concurrency int) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	h, err := loan.NewLoanHandler(query, utils.GenerateSID, base)
+	h, err := loan.NewLoanHandler(query, base)
 	if err != nil {
 		b.Fatal(err)
 	}

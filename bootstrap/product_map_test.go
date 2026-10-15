@@ -63,12 +63,12 @@ func TestLoanQuery_UsesProductMapThroughAuthenticatedRoute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			handler, err := loan.NewLoanHandler(query, func(string, int) (string, error) { return "test-sid", nil }, nil)
+			handler, err := loan.NewLoanHandler(query, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			router := gin.New()
-			routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("test-key", "test-secret"), nil))
+			routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(testKeyReader("test-key", "test-secret"), nil), middleware.RequestSID(func(string, int) (string, error) { return "test-sid", nil }, nil))
 			body := map[string]interface{}{"phone": "0123456789abcdef0123456789abcdef", "pcode": tc.pcode, "apikey": "test-key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}
 			body["sign"] = utils.GenerateSign(map[string]interface{}{"apikey": body["apikey"], "nonce": body["nonce"], "timestamp": body["timestamp"]}, "test-secret")
 			data, err := json.Marshal(body)

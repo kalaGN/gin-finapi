@@ -17,7 +17,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - `/api` 认证：`app/middleware/loan_auth.go`；phone 仅接受 32/64 字节，其他非空长度为 400/1002；所有 32 位字符串截前 20 位查 t。
 - JSON nonce 为必填非空字符串；签名字段为 apikey、nonce、timestamp，排序拼接后附 secret 做 MD5；无防重放去重。
 - SHA-256 phone 转换服务尚未接入（TODO），当前返回 503/9002，不查询 Mongo。
-- 查询标识规则在 `app/services/phone_lookup.go`；Handler 在 SID 和查询前调用，不改变原返回顺序。
+- `/api` 在认证前经 RequestSID 生成一次 SID；Handler 复用 Context SID 后转换 phone 并查询；SID 失败先返回 500/9001。
 - `/api` 凭据来自 Redis String `gin-finapi:auth:apikey:v1:<sha256(apikey)>`，每 Key 独立 secret、status、expires_at；不读取 API_KEY/SECRET_KEY，不自动写入。
 - API Key 缺失/禁用/到期为 400/2001；产品授权缺失/禁用/到期为 403/2004；Redis 故障或损坏记录为 503/9002。
 - `app/configdata/` 统一缓存凭据、产品授权、产品映射；内存优先、未命中读 Redis，每 5 分钟后台刷新，不检查缓存年龄。
@@ -27,7 +27,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - Redis 使用既有 REDIS_* 配置，新增 `REDIS_TIMEOUT` 默认 1s；禁止自动写入或覆盖产品映射。
 - 认证与产品映射各自拥有一个 Redis 池，REDIS_POOL_SIZE 是每池参数，不是应用总连接上限。
 - 请求日志：REQUEST_LOG_OUTPUT=file|redis，后台有界队列；redis 使用独立 CHARGE_REDIS_* 池，RPUSH request_log，失败重试两次后丢弃；尚无消费者。
-- 完成/Handler 诊断日志共享内部 request_id，不改变响应/SID；未查得不记异常，映射异常 WARN，其余固定分类 ERROR。
+- 完成/诊断日志仅用 sid 关联，无 request_id；失败响应仍空 sid。未查得不记异常，映射异常 WARN，其余固定分类 ERROR。
 - 用户确认请求日志 input 为完整 Body、response_data 为实际响应，含请求凭据；不含 Header/Query。status 为业务码，time 为毫秒整数，无顶层 msg；须限制敏感日志访问，禁止真实样本入库。
 - 测试数据 CLI：`cmd/init_mongo.go`。它会删除并重建 16 个集合，未经明确授权不得运行。
 - Redis 初始化：`cmd/init_redis.go`，SET NX 写入产品映射；`-migrate-map` 显式迁移旧 Hash，保留源及已有目标，授权后才可运行。

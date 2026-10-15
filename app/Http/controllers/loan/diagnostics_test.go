@@ -13,6 +13,7 @@ import (
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/request"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -30,12 +31,16 @@ func TestPreQueryDiagnosticDoesNotLeakCause(t *testing.T) {
 			log := logrus.New()
 			log.SetOutput(&output)
 			log.SetFormatter(&logrus.JSONFormatter{})
-			h, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) { t.Fatal("不应查询"); return nil, nil }, func(string, int) (string, error) { return "", errors.New("sensitive-entropy-error") }, log)
+			h, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) { t.Fatal("不应查询"); return nil, nil }, log)
 			if err != nil {
 				t.Fatal(err)
 			}
 			r := gin.New()
-			r.POST("/api", func(c *gin.Context) {
+			generate := successfulSID
+			if tc.kind == "sid_generation" {
+				generate = func(string, int) (string, error) { return "", errors.New("sensitive-entropy-error") }
+			}
+			r.POST("/api", middleware.RequestSID(generate, log), func(c *gin.Context) {
 				request.SetAuthenticated(c, request.Request{Phone: request.StrictString{Value: tc.phone}})
 				h.Create(c)
 			})
@@ -45,8 +50,17 @@ func TestPreQueryDiagnosticDoesNotLeakCause(t *testing.T) {
 			if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
 				t.Fatal(err)
 			}
-			if w.Code != tc.http || entry["error_kind"] != tc.kind || entry["request_id"] == "" || entry["request_id"] == nil {
+			if w.Code != tc.http || entry["error_kind"] != tc.kind {
 				t.Fatalf("HTTP=%d log=%v", w.Code, entry)
+			}
+			if _, exists := entry["request_id"]; exists {
+				t.Fatal("诊断日志不应包含 request_id")
+			}
+			if tc.kind == "phone_conversion" && entry["sid"] != "100testsid" {
+				t.Fatal("转换失败日志应保留 SID")
+			}
+			if tc.kind == "sid_generation" && entry["sid"] != "" {
+				t.Fatal("SID 失败不应有标识")
 			}
 			if strings.Contains(output.String(), "sensitive-entropy-error") {
 				t.Fatal("错误原因泄漏")
@@ -77,13 +91,13 @@ func TestQueryDiagnosticClassificationAndCorrelation(t *testing.T) {
 				log.SetFormatter(&logrus.JSONFormatter{})
 				return log
 			}
-			h, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) { return nil, tc.err }, successfulSID, newLog(&internal))
+			h, err := NewLoanHandler(func(context.Context, string, int) (map[string]int, error) { return nil, tc.err }, newLog(&internal))
 			if err != nil {
 				t.Fatal(err)
 			}
 			r := gin.New()
 			r.Use(middleware.Logger(newLog(&completed)))
-			r.POST("/api", middleware.LoanAuthWithProduct(testKeyReader("key", testSecret), nil), h.Create)
+			r.POST("/api", middleware.RequestSID(utils.GenerateSID, newLog(&internal)), middleware.LoanAuthWithProduct(testKeyReader("key", testSecret), nil), h.Create)
 			var previous string
 			for range 2 {
 				internal.Reset()
@@ -97,11 +111,14 @@ func TestQueryDiagnosticClassificationAndCorrelation(t *testing.T) {
 				if err := json.Unmarshal(completed.Bytes(), &completion); err != nil {
 					t.Fatal(err)
 				}
-				id, _ := completion["request_id"].(string)
+				id, _ := completion["sid"].(string)
 				if id == "" || id == previous || id == "untrusted-client-value" {
 					t.Fatalf("invalid correlation ID %q", id)
 				}
 				previous = id
+				if _, exists := completion["request_id"]; exists {
+					t.Fatal("完成日志不应包含 request_id")
+				}
 				if w.Header().Get("X-Request-ID") != "" || strings.Contains(w.Body.String(), "request_id") {
 					t.Fatal("response contract changed")
 				}
@@ -115,8 +132,11 @@ func TestQueryDiagnosticClassificationAndCorrelation(t *testing.T) {
 				if err := json.Unmarshal(internal.Bytes(), &diagnostic); err != nil {
 					t.Fatal(err)
 				}
-				if diagnostic["request_id"] != id || diagnostic["error_kind"] != tc.kind || diagnostic["level"] != tc.level {
+				if diagnostic["error_kind"] != tc.kind || diagnostic["level"] != tc.level || diagnostic["sid"] != id {
 					t.Fatalf("diagnostic=%v", diagnostic)
+				}
+				if _, exists := diagnostic["request_id"]; exists {
+					t.Fatal("诊断日志不应包含 request_id")
 				}
 				if strings.Contains(internal.String(), "sensitive-driver-details") || strings.Contains(internal.String(), testSecret) {
 					t.Fatal("diagnostic leaked sensitive data")

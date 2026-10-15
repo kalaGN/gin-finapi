@@ -59,7 +59,7 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	if err != nil {
 		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
 	}
-	handler, err := loan.NewLoanHandler(query, utils.GenerateSID, log)
+	handler, err := loan.NewLoanHandler(query, log)
 	if err != nil {
 		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
 	}
@@ -109,7 +109,7 @@ func SetupRoute(router *gin.Engine, loanHandler, loanAuth gin.HandlerFunc, log *
 	closeMiddleware := registerGlobalMiddleWare(router, requestLog, limit)
 
 	//  注册 API 路由
-	routes.RegisterAPIRoutes(router, loanHandler, loanAuth)
+	routes.RegisterAPIRoutes(router, loanHandler, loanAuth, middleware.RequestSID(utils.GenerateSID, log))
 	return closeMiddleware
 }
 

@@ -1,5 +1,11 @@
 # Gin FinAPI 项目现状分析
 
+> 2026-10-15 后续：按用户要求将 SID 生成前移至 `/api` 认证前（全局限流之后）。
+> Handler 仅依赖查询与日志，从 Context 复用 SID；认证/参数失败完成日志也含 sid，错误响应仍空 sid。
+> SID 生成失败先返回 500/9001，不读取认证源或 Mongo。此前“phone 转换前不生成 SID”描述为历史顺序。
+> 随后按用户要求删除 request_id 实现与日志字段，统一用 sid；health、限流等无 SID 请求不再有逐请求关联标识。
+> 见 [认证前生成 SID](../specs/20261015-认证前生成SID-设计.md)。
+
 > 2026-10-15：审计项 5/6 已完成本地实现，项 8 建立隔离合成基线。未查得不再输出处理失败日志；
 > 诊断日志增加固定 error_kind，与完成日志用内部 request_id 关联，不改变响应/SID。
 > ProductKey、Digest、损坏记录语义及状态/到期策略归 services，Redis 不再引用 configdata。

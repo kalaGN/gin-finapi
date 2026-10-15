@@ -65,12 +65,12 @@ func TestLoanWithConfigCache(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			handler, err := handlerloan.NewLoanHandler(query, func(string, int) (string, error) { return "test-sid", nil }, nil)
+			handler, err := handlerloan.NewLoanHandler(query, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			router := gin.New()
-			routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess))
+			routes.RegisterAPIRoutes(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), middleware.RequestSID(func(string, int) (string, error) { return "test-sid", nil }, nil))
 			send := func() (*httptest.ResponseRecorder, request.Response) {
 				t.Helper()
 				body := map[string]interface{}{"phone": "0123456789abcdef0123456789abcdef", "pcode": 10001, "apikey": "test-key", "nonce": "3093", "timestamp": time.Now().UnixMilli()}

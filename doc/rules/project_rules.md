@@ -24,7 +24,7 @@
 | `main.go` | 信号 Context、Run、脱敏失败摘要与退出码 |
 | `bootstrap/` | 配置、日志、依赖和路由装配；HTTP 生命周期和资源关闭 |
 | `routes/` | `GET /health`、`POST /api` 注册 |
-| `app/Http/controllers/loan/` | 已认证请求处理、调用查询标识规则、SID 和 HTTP 响应 |
+| `app/Http/controllers/loan/` | 已认证请求处理、复用 Context SID、调用查询标识规则和 HTTP 响应 |
 | `app/services/` | 查询编排、phone 转换、凭据/授权快照与稳定错误，不依赖 Gin 或存储实现 |
 | `app/middleware/` | CORS、日志、进程内限流、LoanAuthWithProduct |
 | `app/configdata/` | 三类配置的内存优先读取、LRU、合并回源、后台刷新及关闭 |
@@ -80,8 +80,9 @@ main.go
   → 外层 Recovery → CORS → Logger → 业务 Recovery → 进程内 IP 限流
   → GET /health
   → POST /api
+      → RequestSID 生成并保存 SID（失败先返回 500/9001）
       → LoanAuthWithProduct 单次 JSON/字段/API Key/时间戳/签名及产品授权校验
-      → LoanHandler 调用 services.PhoneLookupKey → SID → app/services 产品查询编排
+      → LoanHandler 复用 SID → services.PhoneLookupKey → app/services 产品查询编排
       → app/configdata 内存优先，未命中 GET 产品 KV，校验 JSON 字段映射
       → mongo.Store.Query（实例配置）
       → Mongo FindOne(t=phone)
@@ -89,7 +90,7 @@ main.go
       → CommonRes JSON
 ```
 
-LoanHandler 显式注入查询、SID 和 Logger；bootstrap 仅装配查询用例、存储错误适配、认证和限流。
+LoanHandler 显式注入查询和 Logger；bootstrap 装配查询用例、存储错误适配、SID 中间件、认证和限流。
 HTTP DTO 放在 pkg/request；Handler/LoanAuth 不直接引用 Mongo/Redis 类型，查询与认证稳定语义统一来自 app/services。
 认证 ErrAuthUnavailable 与查询 ErrUnavailable 必须区分，不因合并目录而合并错误分类或数据契约。
 ProductKey、Digest、ErrInvalidRecord 及状态/到期 Validate 策略归 services；Redis 不依赖 configdata。
@@ -188,6 +189,9 @@ Redis 负责格式解析，configdata 负责缓存/刷新，逐请求业务有�
 
 - Gin Handler 会并发执行；共享 map、随机源、客户端状态必须证明并发安全并有并发测试。
 - SID 使用 `crypto/rand` 和拒绝采样；随机源失败必须返回错误，禁止降级到可预测值。
+- `/api` 的 RequestSID 在认证/参数解析之前、全局限流之后执行；一次生成并供 Handler/日志复用。
+  生成失败先返回 500/9001；认证成功却缺少 Context SID 视为装配错误，不允许 Handler 补生成。
+  保持成功响应返回 SID、失败响应 sid 为空；不从客户端 Header/Body 读取服务端 SID。
 - Goroutine 必须有清晰所有者、停止方式和生命周期；禁止不可停止的新增后台循环。
 - 外部 I/O 传递请求 Context，并设置明确超时；不得用 `context.Background()` 丢失取消传播。
 - 打开的响应体、文件、压缩流、连接和 ticker 必须在所有路径释放。
@@ -307,9 +311,11 @@ go build ./...
 - Mongo Store 关闭不触发连接且关闭后不重开；Redis 每个读取器负责自己的池，REDIS_POOL_SIZE 不是应用总上限。
 - Health、readiness 和 liveness 的语义必须分开记录；不能把简单 `/health` 宣称为依赖就绪检查。
 - 请求日志包含方法、路径、HTTP 状态、业务码、耗时、input 和 response_data；完整载荷规则按上述授权例外执行。
-- 完成日志和 Handler 诊断日志共享服务端生成的 request_id（仅进程内唯一，不信任客户端 ID，
-  不新增响应字段/Header，不替代业务 SID）。未查得不输出异常日志；产品映射异常 WARN，
+- 完成日志和 Handler 诊断日志统一通过服务端生成的 sid 关联，不从客户端读取 ID，
+  不生成或输出 request_id，不新增响应字段/Header。未查得不输出异常日志；产品映射异常 WARN，
   其他处理故障 ERROR，并使用固定 error_kind，不输出原始驱动错误或查询值。
+- 完成/诊断日志读取 Context sid；SID 中间件生成失败日志保留安全分类，sid 为空。
+  health、预检、404、限流拒绝不生成业务 SID，也没有备用关联标识，不伪造 SID 或改变响应。
 - 错误分类至少能区分参数、认证、未查得、依赖失败、超时和数据损坏，但契约变更需先确认。
 - 引入指标、Trace 或告警时记录名称、标签基数、采样、隐私和运维所有者，不虚构现有平台。
 

@@ -14,20 +14,18 @@ import (
 
 type CommonRes = request.Response
 type QueryFunc = services.QueryFunc
-type SIDFunc func(string, int) (string, error)
 
 // LoanHandler 使用显式注入的依赖处理已认证请求。
 type LoanHandler struct {
-	query       QueryFunc
-	generateSID SIDFunc
-	log         *logrus.Logger
+	query QueryFunc
+	log   *logrus.Logger
 }
 
-func NewLoanHandler(query QueryFunc, sid SIDFunc, log *logrus.Logger) (*LoanHandler, error) {
-	if query == nil || sid == nil {
-		return nil, errors.New("loan handler requires query and SID dependencies")
+func NewLoanHandler(query QueryFunc, log *logrus.Logger) (*LoanHandler, error) {
+	if query == nil {
+		return nil, errors.New("loan handler requires query dependency")
 	}
-	return &LoanHandler{query: query, generateSID: sid, log: log}, nil
+	return &LoanHandler{query: query, log: log}, nil
 }
 
 func (h *LoanHandler) Create(c *gin.Context) {
@@ -36,16 +34,16 @@ func (h *LoanHandler) Create(c *gin.Context) {
 		request.AbortWithStatusJSON(c, http.StatusUnauthorized, CommonRes{Status: rescode.ErrInvalidApikey, Msg: rescode.GetCodeMsg(rescode.ErrInvalidApikey)})
 		return
 	}
+	sid := request.SID(c)
+	if sid == "" {
+		h.logFailure(c, "read SID", "sid_missing", logrus.ErrorLevel)
+		request.JSON(c, http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
+		return
+	}
 	queryKey, err := services.PhoneLookupKey(body.Phone.Value)
 	if err != nil {
 		h.logFailure(c, "phone lookup", "phone_conversion", logrus.ErrorLevel)
 		request.JSON(c, http.StatusServiceUnavailable, CommonRes{Status: rescode.ErrServiceUnavailable, Msg: rescode.GetCodeMsg(rescode.ErrServiceUnavailable)})
-		return
-	}
-	sid, err := h.generateSID("100", 29)
-	if err != nil {
-		h.logFailure(c, "generate SID", "sid_generation", logrus.ErrorLevel)
-		request.JSON(c, http.StatusInternalServerError, CommonRes{Status: rescode.ErrInternalError, Msg: rescode.GetCodeMsg(rescode.ErrInternalError)})
 		return
 	}
 	// 标识归一化只影响数据库查询，phone 不参与签名。
@@ -89,7 +87,7 @@ func (h *LoanHandler) logFailure(c *gin.Context, operation, kind string, level l
 		// 分类来自固定集合，禁止记录可能包含凭据或查询值的原始驱动错误。
 		h.log.WithFields(logrus.Fields{
 			"event": "request_processing_failed", "operation": operation,
-			"error_kind": kind, "request_id": request.ID(c),
+			"error_kind": kind, "sid": request.SID(c),
 		}).Log(level, "Request processing failed")
 	}
 }
