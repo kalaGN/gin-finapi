@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kalaGN/gin-finapi/app/Http/controllers"
 	"github.com/kalaGN/gin-finapi/app/Http/controllers/loan"
 	"github.com/kalaGN/gin-finapi/app/middleware"
 	"github.com/kalaGN/gin-finapi/app/services"
@@ -51,8 +52,18 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 	if err != nil {
 		return nil, nil, errors.Join(err, closeDependencies(context.Background()))
 	}
+	var cacheHandler *controllers.CacheHandler
+	if cfg.ConfigCacheToken != "" {
+		cacheHandler, err = controllers.NewCacheHandler(reader.Clear, log)
+		if err != nil {
+			return nil, nil, errors.Join(err, closeDependencies(context.Background()))
+		}
+	}
 	router := gin.New()
 	closeMiddleware := SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit, requestLog)
+	if cacheHandler != nil {
+		routes.RegisterConfigCacheRoute(router, cacheHandler.Clear, middleware.ConfigCacheAuth(cfg.ConfigCacheToken), middleware.RequestSID(utils.GenerateSID, log))
+	}
 	configuration.start(log)
 	return router, func(ctx context.Context) error {
 		return errors.Join(closeMiddleware(ctx), closeDependencies(ctx))

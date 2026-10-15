@@ -96,3 +96,40 @@ func TestSetupRoute_UsesConfiguredRateLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestNewRouter_ConfigCacheEnabledAndDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, token := range []string{"", "synthetic-admin-token"} {
+		cfg := config.AppConfig{
+			MongoDB:          config.MongoDBConfig{DSN: "invalid-test-dsn", Database: "test", MaxPool: 100},
+			Redis:            config.RedisConfig{Addr: "127.0.0.1:1", PoolSize: 1, Timeout: time.Second},
+			RateLimit:        config.RateLimitConfig{Requests: 100, Window: time.Second},
+			ConfigCacheToken: token,
+		}
+		router, closeDependencies, err := NewRouter(cfg, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, authorization := range []string{"", "Bearer customer-api-key", "Bearer synthetic-admin-token"} {
+			req := httptest.NewRequest("DELETE", "/config/cache", nil)
+			req.Header.Set("Authorization", authorization)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			want := 401
+			if token == "" {
+				want = 404
+			} else if authorization == "Bearer synthetic-admin-token" {
+				want = 200
+			}
+			if response.Code != want {
+				t.Fatalf("管理路由HTTP=%d，期望%d", response.Code, want)
+			}
+			if want == 200 && !strings.Contains(response.Body.String(), `"credentials":0`) {
+				t.Fatal("未返回清理数量")
+			}
+		}
+		if err := closeDependencies(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

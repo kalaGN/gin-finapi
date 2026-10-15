@@ -44,3 +44,21 @@ func TestRegisterAPIRoutes_LoanUsesAPIPath(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigCacheRouteOnlyAcceptsDeleteAndAuthenticatesFirst(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	called := false
+	RegisterConfigCacheRoute(router, func(c *gin.Context) { called = true; c.Status(204) }, func(c *gin.Context) { c.AbortWithStatus(401) }, func(c *gin.Context) { c.Next() })
+	for _, method := range []string{"GET", "POST", "PUT", "DELETE"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(method, "/config/cache", nil))
+		want := 404
+		if method == "DELETE" {
+			want = 401
+		}
+		if response.Code != want || called {
+			t.Fatal("路由方法错误或认证前执行了清理")
+		}
+	}
+}

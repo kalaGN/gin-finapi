@@ -11,6 +11,7 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - Go `1.24.0`，toolchain `go1.24.10`；Gin `1.11.0`。
 - 应用入口：`main.go`（信号与退出码）→ `bootstrap.Run`（装配与生命周期）。
 - 路由：`routes/api.go`；中间件：`app/middleware/`。
+- 管理接口：非空 `CONFIG_CACHE_TOKEN` 才启用 `DELETE /config/cache`，独立Bearer认证；仅清本进程三类缓存，不动Redis/MySQL、不计费，旧回源不可回填。
 - 核心处理：LoanHandler → `app/services/product_query.go` → `pkg/mongo/store.go`（实例配置与客户端）。
 - `app/services/auth.go` 定义凭据、授权快照和认证错误；认证不可用 ErrAuthUnavailable 与查询 ErrUnavailable 分开，Handler/中间件不直接引用存储包。
 - services 同时拥有 ProductKey、Digest、ErrInvalidRecord 和状态/到期校验；Redis 不依赖 configdata。

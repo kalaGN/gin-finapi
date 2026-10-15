@@ -6,6 +6,7 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`specs/20261015-内存缓存清理-设计.md`](specs/20261015-内存缓存清理-设计.md) | Specs / 设计 | 独立管理Token、三类本进程清理及旧回源隔离 | 缓存清理接口与并发维护 |
 | [`specs/20261015-MySQL配置回源同步-设计.md`](specs/20261015-MySQL配置回源同步-设计.md) | Specs / 设计 | MySQL四表、加密凭据、Redis失败回源与默认定时同步 | 配置数据、授权、同步 |
 | [`specs/20261015-MySQL配置回源同步-任务.md`](specs/20261015-MySQL配置回源同步-任务.md) | Specs / 任务 | 实施顺序、真实本地验证与质量门禁 | 实施与验收 |
 | [`knowledge/mysql_configuration.md`](knowledge/mysql_configuration.md) | Knowledge | 四表、配置链、操作与一致性边界 | MySQL/Redis配置维护 |

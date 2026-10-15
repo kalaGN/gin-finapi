@@ -25,3 +25,8 @@ func RegisterAPIRoutes(router *gin.Engine, loanHandler, loanAuth, loanSID gin.Ha
 	// Loan 业务接口统一挂在 /api 入口。
 	router.POST("/api", loanSID, loanAuth, loanHandler)
 }
+
+// RegisterConfigCacheRoute 仅由启用管理Token的启动层注册，不复用业务认证。
+func RegisterConfigCacheRoute(router *gin.Engine, handler, auth, sid gin.HandlerFunc) {
+	router.DELETE("/config/cache", sid, auth, handler)
+}

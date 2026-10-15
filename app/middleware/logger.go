@@ -20,7 +20,12 @@ func Logger(log *logrus.Logger) gin.HandlerFunc {
 			return
 		}
 		start := time.Now()
-		input, truncated := captureInput(c)
+		var input interface{}
+		var truncated bool
+		// 管理接口没有Body参数，不采集误放在Body中的管理凭据；Header/Query仍不采集。
+		if c.Request.URL.Path != "/config/cache" {
+			input, truncated = captureInput(c)
+		}
 		writer := &responseLogWriter{ResponseWriter: c.Writer}
 		c.Writer = writer
 		c.Next()

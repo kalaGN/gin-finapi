@@ -4,19 +4,21 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // AppConfig 应用配置结构
 type AppConfig struct {
-	Server      ServerConfig
-	MongoDB     MongoDBConfig
-	Redis       RedisConfig
-	RateLimit   RateLimitConfig
-	Cache       CacheConfig
-	RequestLog  RequestLogConfig
-	ChargeRedis RedisConfig
-	MySQL       MySQLConfig
+	Server           ServerConfig
+	MongoDB          MongoDBConfig
+	Redis            RedisConfig
+	RateLimit        RateLimitConfig
+	Cache            CacheConfig
+	RequestLog       RequestLogConfig
+	ChargeRedis      RedisConfig
+	MySQL            MySQLConfig
+	ConfigCacheToken string
 }
 
 // RateLimitConfig configures the existing per-process, per-IP limiter.
@@ -64,6 +66,10 @@ var Config *AppConfig
 
 // Load 从环境变量加载配置
 func Load() error {
+	token := os.Getenv("CONFIG_CACHE_TOKEN")
+	if err := validateConfigCacheToken(token); err != nil {
+		return err
+	}
 	mysql, err := loadMySQLConfig()
 	if err != nil {
 		return err
@@ -112,11 +118,12 @@ func Load() error {
 			PoolSize: getEnvIntWithDefault("REDIS_POOL_SIZE", 10),
 			Timeout:  redisTimeout,
 		},
-		RateLimit:   rateLimit,
-		Cache:       cache,
-		RequestLog:  requestLog,
-		ChargeRedis: chargeRedis,
-		MySQL:       mysql,
+		RateLimit:        rateLimit,
+		Cache:            cache,
+		RequestLog:       requestLog,
+		ChargeRedis:      chargeRedis,
+		MySQL:            mysql,
+		ConfigCacheToken: token,
 	}
 
 	return nil
@@ -142,6 +149,9 @@ func getEnvIntWithDefault(key string, defaultValue int) int {
 
 // Validate 验证配置
 func (c *AppConfig) Validate() error {
+	if err := validateConfigCacheToken(c.ConfigCacheToken); err != nil {
+		return err
+	}
 	if err := c.MySQL.Validate(); err != nil {
 		return err
 	}
@@ -168,6 +178,13 @@ func (c *AppConfig) Validate() error {
 	}
 	if err := c.RateLimit.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateConfigCacheToken(token string) error {
+	if token != "" && (len(strings.Fields(token)) != 1 || strings.TrimSpace(token) != token) {
+		return fmt.Errorf("CONFIG_CACHE_TOKEN must not contain whitespace")
 	}
 	return nil
 }

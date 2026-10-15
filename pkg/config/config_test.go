@@ -20,6 +20,7 @@ func TestAppConfigValidate_RequiredValues(t *testing.T) {
 		wantErr string
 	}{
 		{name: "valid"},
+		{name: "invalid admin token", mutate: func(config *AppConfig) { config.ConfigCacheToken = "private token" }, wantErr: "CONFIG_CACHE_TOKEN"},
 		{name: "missing Redis address", mutate: func(config *AppConfig) { config.Redis.Addr = "" }, wantErr: "Redis"},
 		{name: "negative Redis database", mutate: func(config *AppConfig) { config.Redis.DB = -1 }, wantErr: "Redis"},
 		{name: "zero Redis pool", mutate: func(config *AppConfig) { config.Redis.PoolSize = 0 }, wantErr: "Redis"},
@@ -51,11 +52,28 @@ func TestAppConfigValidate_RequiredValues(t *testing.T) {
 	}
 }
 
+func TestLoadConfigCacheTokenDisabledAndInvalid(t *testing.T) {
+	previous := Config
+	t.Cleanup(func() { Config = previous })
+	t.Setenv("MYSQL_ENABLED", "false")
+	t.Setenv("CONFIG_CACHE_TOKEN", "")
+	if err := Load(); err != nil || Config.ConfigCacheToken != "" {
+		t.Fatal("空Token应关闭接口，不影响原配置")
+	}
+	for _, token := range []string{" ", "synthetic token", "synthetic\n", "synthetic\tvalue", "synthetic\u3000value"} {
+		t.Setenv("CONFIG_CACHE_TOKEN", token)
+		if err := Load(); err == nil || strings.Contains(err.Error(), "synthetic") {
+			t.Fatal("无效Token未拒绝或错误泄露凭据")
+		}
+	}
+}
+
 func TestLoad_ReadsEnvironmentAndDefaults(t *testing.T) {
 	previous := Config
 	t.Cleanup(func() { Config = previous })
 
 	t.Setenv("SERVER_PORT", "")
+	t.Setenv("CONFIG_CACHE_TOKEN", "synthetic-admin-token")
 	t.Setenv("RATE_LIMIT_REQUESTS", "")
 	t.Setenv("RATE_LIMIT_WINDOW", "")
 	t.Setenv("ENV", "test")
@@ -74,6 +92,9 @@ func TestLoad_ReadsEnvironmentAndDefaults(t *testing.T) {
 
 	if err := Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
+	}
+	if Config.ConfigCacheToken != "synthetic-admin-token" {
+		t.Fatal("管理Token未从配置读取")
 	}
 	if Config.Server.Port != "8082" || Config.Server.Env != "test" {
 		t.Fatalf("server config = %#v", Config.Server)

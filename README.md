@@ -164,6 +164,30 @@ curl -X POST http://localhost:8082/api \
 
 ## API 接口
 
+### 清除本进程配置缓存
+
+配置独立 `CONFIG_CACHE_TOKEN` 并重启后启用 `DELETE /config/cache`；默认空值不注册路由（404）。
+只从 `Authorization: Bearer <token>` 认证，不接受客户API Key、Query或Body中的Token；
+未认证返回401，读取器已关闭或调用取消返回503。应使用HTTPS并限制管理路径的网络访问。
+
+```bash
+curl --request DELETE 'http://127.0.0.1:8082/config/cache' \
+  --header 'Authorization: Bearer <独立管理Token>'
+```
+
+成功返回实际清理数量，缓存关闭或重复清理时可为0：
+
+```json
+{"cleared":{"credentials":1,"product_access":1,"product_maps":1}}
+```
+
+清理凭据、产品授权、产品映射的内存快照，不读写Redis/MySQL/Mongo；清理前在途读取不会回填旧值，
+但已接受的请求仍可完成，后续请求可立即回源并重新缓存。多实例须分别调用，不能据此承诺立即撤权。
+如果修改的是MySQL，须先完成MySQL→Redis同步，否则清理L1后仍可能读取Redis旧配置。
+该管理接口无业务status字段、不计费；完成日志input/status为null、success/charge为0，另记录SID及清理数量审计。
+管理接口不采集Body/Header/Query，错误响应为 `{"error":"未授权访问"}` 或 `{"error":"服务暂时不可用"}`。
+详见 [清理设计](doc/specs/20261015-内存缓存清理-设计.md)。
+
 ### 健康检查
 
 ```

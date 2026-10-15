@@ -144,6 +144,7 @@ Redis/MySQL 负责适配，共享映射校验归 services；configdata 负责缓
 | --- | --- | --- |
 | `GET /health` | 无业务参数 | HTTP 200，纯文本 `ok` |
 | `POST /api` | `application/json`；`phone`、`pcode`、`apikey`、`timestamp`、`sign` | JSON：`status`、`msg`、`sid`、`data` |
+| `DELETE /config/cache`（配置Token才启用） | 独立Authorization Bearer，无Body参数 | 成功200含cleared三类数量；认证401、关闭/取消503含error；默认404 |
 
 - `/api` 的 `pcode` 只接受 JSON 整数且范围为 10001–99999；`timestamp` 只接受 JSON 整数，
   使用毫秒并限制为过去 5 分钟内。字符串、小数、指数形式和整数溢出值均拒绝。
@@ -256,6 +257,8 @@ go build ./...
 ### 已确认机制
 
 - `.env` 和 `*.ini` 被 `.gitignore` 忽略；`.env.example` 只包含占位值。
+- 缓存清理只允许独立CONFIG_CACHE_TOKEN认证，不能复用客户Key；空Token不注册路由，Token不进Body/Query或日志。
+  管理接口不采集Body，响应无业务status，完成日志不计费；API查询的完整Body/响应日志规则保持不变。
 - 启动时校验 Redis 配置、Mongo DSN 和数据库名非空，不再依赖 PHONE_AES_KEY。
 - `/api` 校验五分钟时间戳、API Key、apikey/nonce/timestamp 的MD5签名；phone按services规则转换后查询。
 
@@ -372,6 +375,8 @@ go build ./...
   MYSQL_ENABLED 默认false；true时仅显式Fallback允许Redis缺失/损坏/故障回源MySQL，通用Source链错误即停止。
   REDIS_CACHE_ENABLED 默认 true；false 时逐请求直读，无回填、合并读取或刷新，不提供旧快照兜底。
   开关启动时读取，修改后重启生效；不得因关闭缓存而跳过授权、状态、到期或格式校验。
+  管理清理只清本进程L1并隔离旧flight，不能修改Redis/MySQL、绕过并发门或取消已接受请求。
+  清理数量只反映清理时刻；并发新请求可立即回填，不能承诺返回时始终为空或跨实例立即撤权。
   内存开关不关闭MySQL回源或同步。MYSQL_SYNC_ENABLED默认true，启动后异步一次、此后默认5m。
   同步仅清理自身清单托管键，禁止SCAN/FLUSH或因读失败发布空快照；完整空库仍会清空托管配置，须审查目标。
   客户/Key撤权有传播延迟，不保证立即一致；加密密钥更换先有迁移/回滚Spec，不直接替换。

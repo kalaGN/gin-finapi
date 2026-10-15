@@ -133,7 +133,9 @@ func (c *cache[K, V]) fetch(key K, refresh bool, f *flight[V]) {
 	f.value, f.found, f.err = c.readSources(ctx, key)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.closed {
+	// 清理会替换 flight 索引；旧读取只能通知原等待者，不能污染新缓存。
+	current := c.flights[key] == f
+	if !c.closed && current {
 		if f.err == nil && f.found {
 			if e, ok := c.entries[key]; ok {
 				e.Value = entry[K, V]{key, c.clone(f.value)}
@@ -155,7 +157,9 @@ func (c *cache[K, V]) fetch(key K, refresh bool, f *flight[V]) {
 			}
 		}
 	}
-	delete(c.flights, key)
+	if current {
+		delete(c.flights, key)
+	}
 	close(f.done)
 }
 
@@ -206,6 +210,15 @@ func (c *cache[K, V]) keys() []K {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+// clearLocked 由 Reader 同时持有三个缓存锁时调用，不触发外部读取。
+func (c *cache[K, V]) clearLocked() int {
+	count := len(c.entries)
+	c.entries = make(map[K]*list.Element)
+	c.lru.Init()
+	c.flights = make(map[K]*flight[V])
+	return count
 }
 
 func (c *cache[K, V]) stop() {
