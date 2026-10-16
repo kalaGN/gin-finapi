@@ -4,6 +4,8 @@ package services
 import (
 	"context"
 	"errors"
+
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 var (
@@ -22,9 +24,12 @@ func NewQuery(load func(context.Context, int) (map[string]int, error), find func
 	}
 	return func(ctx context.Context, phone string, pcode int) (map[string]int, error) {
 		mapping, err := load(ctx, pcode)
+		utils.MarkTiming(ctx, "product_map")
 		if err != nil {
 			return nil, err
 		}
-		return find(ctx, phone, mapping)
+		data, err := find(ctx, phone, mapping)
+		utils.MarkTiming(ctx, "query")
+		return data, err
 	}, nil
 }

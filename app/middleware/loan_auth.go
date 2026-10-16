@@ -21,6 +21,8 @@ func LoanAuthWithProduct(load func(context.Context, string) (services.Credential
 
 func loanAuth(load func(context.Context, string) (services.Credential, error), loadProduct func(context.Context, string, int) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 失败返回也记录鉴权结束；成功在Next前标记，同名仅记首次，不包含下游查询。
+		defer utils.MarkTiming(c.Request.Context(), "auth")
 		reject := func(code int, message string) {
 			request.AbortWithStatusJSON(c, http.StatusBadRequest, request.Response{Status: code, Msg: message})
 		}
@@ -116,6 +118,7 @@ func loanAuth(load func(context.Context, string) (services.Credential, error), l
 			}
 		}
 		request.SetAuthenticated(c, body)
+		utils.MarkTiming(c.Request.Context(), "auth")
 		c.Next()
 	}
 }

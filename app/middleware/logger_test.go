@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -45,9 +47,24 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			log := logrus.New()
 			log.SetOutput(&output)
 			log.SetFormatter(applogger.RequestFormatter{})
-			handler, err := loan.NewLoanHandler(func(context.Context, string, int) (map[string]int, error) {
+			query, err := services.NewQuery(func(ctx context.Context, _ int) (map[string]int, error) {
+				if _, ok := utils.TimingSnapshot(ctx)["auth"]; !ok {
+					t.Error("进入业务前未结束鉴权计时")
+				}
+				if errors.Is(tc.queryErr, services.ErrProductMapping) {
+					return nil, tc.queryErr
+				}
+				return map[string]int{"var100001": 0}, nil
+			}, func(ctx context.Context, _ string, _ map[string]int) (map[string]int, error) {
+				if _, ok := utils.TimingSnapshot(ctx)["product_map"]; !ok {
+					t.Error("进入查询前未记录映射计时")
+				}
 				return map[string]int{"var100001": 1}, tc.queryErr
-			}, nil)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler, err := loan.NewLoanHandler(query, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -80,16 +97,36 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			}
 			assertResultLog(t, output.Bytes(), tc.success, tc.charge)
 			var row struct {
-				SID          string          `json:"sid"`
-				Input        json.RawMessage `json:"input"`
-				ResponseData json.RawMessage `json:"response_data"`
-				Status       int             `json:"status"`
+				SID          string           `json:"sid"`
+				Input        json.RawMessage  `json:"input"`
+				ResponseData json.RawMessage  `json:"response_data"`
+				Status       int              `json:"status"`
+				Timing       map[string]int64 `json:"duration_ms"`
 			}
 			if err := json.Unmarshal(output.Bytes(), &row); err != nil {
 				t.Fatal(err)
 			}
 			if row.Status != tc.code || row.SID != "test-sid" {
 				t.Fatalf("日志status=%d", row.Status)
+			}
+			if _, ok := row.Timing["auth"]; !ok {
+				t.Fatal("缺少鉴权计时")
+			}
+			wantMap := tc.mutate == nil && tc.keyErr == nil && tc.grantErr == nil
+			wantQuery := wantMap && !errors.Is(tc.queryErr, services.ErrProductMapping)
+			_, hasMap := row.Timing["product_map"]
+			_, hasQuery := row.Timing["query"]
+			if hasMap != wantMap || hasQuery != wantQuery {
+				t.Fatalf("短路节点错误=%v", row.Timing)
+			}
+			previous := int64(0)
+			for _, stage := range []string{"auth", "product_map", "query", "finish"} {
+				if value, ok := row.Timing[stage]; ok {
+					if value < previous {
+						t.Fatalf("时间点倒序=%v", row.Timing)
+					}
+					previous = value
+				}
 			}
 			var input, response map[string]interface{}
 			if err := json.Unmarshal(row.Input, &input); err != nil {
@@ -121,6 +158,58 @@ func TestLogger_NoBusinessStatusDoesNotCharge(t *testing.T) {
 		r.GET("/health", func(c *gin.Context) { c.String(status, "ok") })
 		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/health", nil))
 		assertResultLog(t, output.Bytes(), 0, 0)
+		var row struct {
+			Timing map[string]int64 `json:"duration_ms"`
+		}
+		if err := json.Unmarshal(output.Bytes(), &row); err != nil || len(row.Timing) != 2 {
+			t.Fatal("health不应有业务节点")
+		}
+	}
+}
+
+func TestLoggerTimingShortCircuitAndPanic(t *testing.T) {
+	for _, panicQuery := range []bool{false, true} {
+		t.Run(map[bool]string{false: "限流短路", true: "查询Panic"}[panicQuery], func(t *testing.T) {
+			var output bytes.Buffer
+			log := logrus.New()
+			log.SetOutput(&output)
+			log.SetFormatter(applogger.RequestFormatter{})
+			r := gin.New()
+			r.Use(Logger(log), gin.RecoveryWithWriter(io.Discard))
+			if !panicQuery {
+				r.Use(func(c *gin.Context) { c.AbortWithStatus(http.StatusTooManyRequests) })
+			}
+			query, err := services.NewQuery(func(context.Context, int) (map[string]int, error) { return map[string]int{"a": 0}, nil }, func(context.Context, string, map[string]int) (map[string]int, error) { panic("synthetic-query-panic") })
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.POST("/api", func(c *gin.Context) {
+				utils.MarkTiming(c.Request.Context(), "auth")
+				_, _ = query(c.Request.Context(), "synthetic", 10001)
+			})
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest("POST", "/api", nil))
+			assertResultLog(t, output.Bytes(), 0, 0)
+			var row struct {
+				Timing map[string]int64 `json:"duration_ms"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &row); err != nil {
+				t.Fatal(err)
+			}
+			_, hasMap := row.Timing["product_map"]
+			_, hasAuth := row.Timing["auth"]
+			_, hasQuery := row.Timing["query"]
+			if hasQuery || hasAuth != panicQuery || hasMap != panicQuery {
+				t.Fatalf("异常路径节点=%v", row.Timing)
+			}
+			wantStatus := http.StatusTooManyRequests
+			if panicQuery {
+				wantStatus = http.StatusInternalServerError
+			}
+			if w.Code != wantStatus {
+				t.Fatalf("HTTP=%d", w.Code)
+			}
+		})
 	}
 }
 
@@ -135,6 +224,16 @@ func assertResultLog(t *testing.T, data []byte, success, charge int) {
 	}
 	if _, exists := fields["msg"]; exists {
 		t.Fatal("日志不应包含顶层 msg")
+	}
+	var timing map[string]int64
+	if err := json.Unmarshal(fields["duration_ms"], &timing); err != nil || timing == nil {
+		t.Fatalf("duration_ms必须是JSON对象：%s", fields["duration_ms"])
+	}
+	if entry, ok := timing["entry"]; !ok || entry != 0 {
+		t.Fatal("入口必须为0")
+	}
+	if finish, ok := timing["finish"]; !ok || finish < 0 {
+		t.Fatal("缺少结束时间点")
 	}
 	var timestamp int64
 	if err := json.Unmarshal(fields["time"], &timestamp); err != nil || timestamp < 1000000000000 {

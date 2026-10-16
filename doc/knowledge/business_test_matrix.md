@@ -41,6 +41,7 @@
 | LOG-01 | 全量Body/实际响应/status/time、success/charge、无Header/Query，管理接口不记Body/Token/charge | [logger_test.go](../../app/middleware/logger_test.go)、[config_cache_auth_test.go](../../app/middleware/config_cache_auth_test.go) |
 | LOG-02 | 异步文件/Redis、字节与条数预算、非阻塞丢弃、最多3次尝试、关闭取消、下条记录继续 | [request_log_test.go](../../pkg/logger/request_log_test.go) |
 | LOG-03 | Panic恢复后只记录一次实际完成响应；外层Recovery仍保护日志自身 | [panic_log_test.go](../../bootstrap/panic_log_test.go) |
+| LOG-04 | duration_ms为累计毫秒对象；鉴权先于业务、短路缺失后续节点、Panic/health/限流结束、文件与Redis保留对象；公共计时并发/快照隔离 | [timing_test.go](../../pkg/utils/timing_test.go)、[logger_test.go](../../app/middleware/logger_test.go)、[文件后端](../../bootstrap/request_log_test.go)、[Redis输出替身](../../pkg/logger/request_log_test.go)；[设计](../specs/20261016-请求流程计时-设计.md) |
 | LIMIT-01 | 独立IP固定窗口、不滑动、并发配额、worker显式Start/Close及有界关闭 | [ratelimit_test.go](../../app/middleware/ratelimit_test.go) |
 | CLI-01 | init/sync拒绝坏env或关闭配置且不连接；dry-run不触碰Redis，失败/锁竞争/发布与释放错误 | [init_mysql_test.go](../../cmd/init_mysql_test.go)、[sync_mysql_redis_test.go](../../cmd/sync_mysql_redis_test.go) |
 | CLI-02 | Redis SET NX保留已有键、显式样例、旧Hash迁移拒绝坏源并保留源和目标 | [init_redis_test.go](../../cmd/init_redis_test.go) |

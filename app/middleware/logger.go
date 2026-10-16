@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -19,7 +19,7 @@ func Logger(log *logrus.Logger) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		start := time.Now()
+		c.Request = c.Request.WithContext(utils.StartTiming(c.Request.Context()))
 		var input interface{}
 		var truncated bool
 		// 管理接口没有Body参数，不采集误放在Body中的管理凭据；Header/Query仍不采集。
@@ -29,6 +29,7 @@ func Logger(log *logrus.Logger) gin.HandlerFunc {
 		writer := &responseLogWriter{ResponseWriter: c.Writer}
 		c.Writer = writer
 		c.Next()
+		utils.MarkTiming(c.Request.Context(), "finish")
 		if log != nil {
 			success, charge := 0, 0
 			code, ok := request.ResponseStatus(c)
@@ -55,7 +56,7 @@ func Logger(log *logrus.Logger) gin.HandlerFunc {
 				"method":        c.Request.Method,
 				"path":          c.FullPath(),
 				"http_status":   c.Writer.Status(),
-				"duration_ms":   time.Since(start).Milliseconds(),
+				"duration_ms":   utils.TimingSnapshot(c.Request.Context()),
 				"success":       success,
 				"charge":        charge,
 				"status":        status,

@@ -279,6 +279,10 @@ go build ./...
   Redis 固定 RPUSH request_log，首次失败后最多重试两次，驱动不得叠加自动重试。
   队列满或最终写入失败允许丢弃，必须写安全内部错误，不阻塞响应、不递归进入请求日志队列。
   不自动 LTRIM/EXPIRE 或消费；消费者须考虑丢失/重复。日志关闭须纳入现有生命周期预算。
+- 请求日志duration_ms必须为累计整数毫秒对象：entry=0、auth、product_map、query、finish，
+  仅记录实际执行节点；auth在Next前结束，失败返回也记录。finish不含日志整理/排队/写入。
+  公共方法为pkg/utils.StartTiming、MarkTiming、TimingSnapshot；同名首次有效、快照隔离、固定节点名，
+  禁止请求输入成为节点名。后台缓存刷新/MySQL同步的duration_ms仍为整数，外部请求日志消费者须适配新类型。
 - 签名仍使用 MD5，但比较已使用常量时间实现；五分钟内仍没有 nonce/幂等防重放机制。
 - CORS 为 `*`；允许来源、凭据需求和反向代理信任边界待确认。
 - LoanHandler 不记录 Mongo/解压原始错误，客户端只返回稳定错误码和文案；

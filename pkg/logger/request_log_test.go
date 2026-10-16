@@ -254,12 +254,23 @@ func (r *listRecorder) RPush(ctx context.Context, key string, values ...interfac
 func TestPushRequestLog_OneJSONRecordAndFixedKey(t *testing.T) {
 	ctx := context.Background()
 	client := &listRecorder{}
-	data := []byte("{\"success\":1,\"charge\":0}\n")
+	data, err := (RequestFormatter{}).Format(logrus.NewEntry(logrus.New()).WithFields(logrus.Fields{
+		"success": 1, "charge": 0, "duration_ms": map[string]int64{"entry": 0, "auth": 3, "finish": 4},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := pushRequestLog(ctx, client, data); err != nil {
 		t.Fatal(err)
 	}
 	if client.key != "request_log" || client.ctx != ctx || len(client.values) != 1 || client.values[0] != string(data[:len(data)-1]) {
 		t.Fatal("Redis请求日志契约错误")
+	}
+	var row struct {
+		Timing map[string]int64 `json:"duration_ms"`
+	}
+	if err := json.Unmarshal([]byte(client.values[0].(string)), &row); err != nil || row.Timing["auth"] != 3 || len(row.Timing) != 3 {
+		t.Fatal("Redis计时对象未保留")
 	}
 	client.err = errors.New("模拟故障")
 	if err := pushRequestLog(ctx, client, data); !errors.Is(err, client.err) {

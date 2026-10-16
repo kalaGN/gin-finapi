@@ -6,6 +6,7 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`specs/20261016-请求流程计时-设计.md`](specs/20261016-请求流程计时-设计.md) | Specs / 设计 | 请求日志累计节点对象、公共Context计时与兼容边界 | 耗时统计及日志消费 |
 | [`specs/20261016-Mongo初始化边界-设计.md`](specs/20261016-Mongo初始化边界-设计.md) | Specs / 设计 | 初始化合并、独立取消、查询总预算与关闭清理 | Mongo生命周期维护 |
 | [`knowledge/business_test_matrix.md`](knowledge/business_test_matrix.md) | Knowledge / 测试 | 已确认业务场景、测试证据、覆盖率与环境边界 | 补测与回归验收 |
 | [`specs/20261016-业务场景回归-设计.md`](specs/20261016-业务场景回归-设计.md) | Specs / 设计 | 本轮补测范围、任务和验证 | 回归实施追溯 |

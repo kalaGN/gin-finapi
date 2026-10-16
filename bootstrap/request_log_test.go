@@ -80,6 +80,16 @@ func TestNewRouter_RequestLogFileBackend(t *testing.T) {
 	if _, ok := fields["msg"]; ok {
 		t.Fatal("日志顶层 msg 应删除")
 	}
+	points, ok := fields["duration_ms"].(map[string]interface{})
+	if !ok || len(points) != 3 || points["entry"] != float64(0) {
+		t.Fatalf("文件计时格式=%v", fields["duration_ms"])
+	}
+	if _, ok := points["auth"]; !ok {
+		t.Fatal("文件后端缺少失败鉴权节点")
+	}
+	if _, ok := points["finish"]; !ok {
+		t.Fatal("文件后端缺少结束节点")
+	}
 	if timestamp, ok := fields["time"].(float64); !ok || timestamp < 1000000000000 {
 		t.Fatal("日志时间应为毫秒整数")
 	}

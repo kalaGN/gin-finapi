@@ -429,7 +429,7 @@ Redis 首次失败后重试两次，共最多三次尝试；仍失败则丢弃�
   "method": "GET",
   "path": "/health",
   "http_status": 200,
-  "duration_ms": 0,
+  "duration_ms": {"entry": 0, "finish": 0},
   "success": 0,
   "charge": 0,
   "status": null,
@@ -438,6 +438,14 @@ Redis 首次失败后重试两次，共最多三次尝试；仍失败则丢弃�
   "time": 1791896584522
 }
 ```
+
+`duration_ms` 为 JSON 对象，值为距请求日志中间件入口的累计整数毫秒，不是各阶段独立耗时。
+`/api` 示例：`{"entry":0,"auth":3,"product_map":4,"query":12,"finish":13}`。
+auth 包含参数、凭据、验签及产品授权，成功时在业务查询前结束；失败也记录已结束的阶段，
+未执行的后续节点不补0。finish 不含日志格式化、排队和异步后端写入时间，JSON字段顺序不保证。
+原先将 duration_ms 当作数字读取的外部消费者需同步适配；后台缓存刷新和MySQL同步日志仍为整数。
+新增统计节点可用 `pkg/utils.StartTiming(ctx)`、`MarkTiming(ctx, "固定节点名")`、`TimingSnapshot(ctx)`；
+计时器经Context传递、并发安全、同名首次有效，输出独立快照，不使用请求参数作为节点名。
 
 ## Redis API Key 凭据
 
