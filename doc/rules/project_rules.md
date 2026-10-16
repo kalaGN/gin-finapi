@@ -303,7 +303,10 @@ go build ./...
 
 - HTTP Server 配置 10 秒 Read/Write Timeout、1 MiB Header；关闭超时 5 秒。
 - `GET /health` 只证明 HTTP 进程可响应，不检查 Mongo readiness，也没有独立 liveness/readiness。
-- Mongo 客户端只在 Connect + Ping 成功后发布；初始化失败可重试，关闭后可重新初始化。
+- Mongo 客户端只在 Connect + Ping 成功且初始化预算未耗尽、Store未关闭时发布；初始化失败可重试，关闭后不重开。
+  初始化锁外执行，同轮合并；独立初始化预算来自MONGODB_TIMEOUT（默认5s），单个请求取消不取消共享初始化。
+  Query在等待初始化前建立预算，等待与Find共用MONGODB_TIMEOUT及上游更早截止时间，禁止连接后重新计时。
+  Close通知等待者并取消初始化，按调用Context返回；迟到客户端独立5s清理且不发布，重复Close等待同一清理结果。
 - 限流是单进程、按 IP 的内存计数器；RATE_LIMIT_REQUESTS 默认 5000，RATE_LIMIT_WINDOW 默认 1s。
   每 IP 独立固定窗口从首次放行起计时，到期重置；lastSeen 仅用于清理，不能让后续放行推迟窗口重置。
   不宣称任意滑动区间都不超过额度；相邻窗口边界可出现突发。

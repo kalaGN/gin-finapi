@@ -3,6 +3,8 @@ package mongo
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -123,6 +125,124 @@ func TestStoreQueryFailureBoundaries(t *testing.T) {
 			}
 			if finds != wantFinds {
 				t.Fatal("初始化失败后仍执行查询")
+			}
+			if err := store.Close(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestStoreQueryTimeoutIncludesInitialization(t *testing.T) {
+	store, err := NewStore(config.MongoDBConfig{DSN: "synthetic-invalid-dsn", Database: "synthetic", MaxPool: 1, Timeout: "30ms"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(unblock)
+	started := make(chan struct{})
+	var finds atomic.Int32
+	store.clients.connect = func(ctx context.Context) (*driver.Client, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-release:
+			return &driver.Client{}, nil
+		}
+	}
+	store.clients.disconnect = func(context.Context, *driver.Client) error { return nil }
+	store.find = func(context.Context, *driver.Client, string, string, string) ([]byte, error) {
+		finds.Add(1)
+		return nil, ErrNotFound
+	}
+	result := make(chan error, 1)
+	go func() { _, err := store.Query(context.Background(), "lookup", map[string]int{"a": 0}); result <- err }()
+	<-started
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("冷启动应返回预算超时，实际=%v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("查询预算未覆盖初始化")
+	}
+	unblock()
+	if err := store.Close(context.Background()); err != nil {
+		t.Error(err)
+	}
+	if finds.Load() != 0 {
+		t.Error("初始化超时后仍执行查询")
+	}
+}
+
+func TestStoreQuerySharesBudgetWithInitialization(t *testing.T) {
+	store, err := NewStore(config.MongoDBConfig{DSN: "synthetic-invalid-dsn", Database: "synthetic", MaxPool: 1, Timeout: "2s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var initDeadline time.Time
+	store.clients.connect = func(ctx context.Context) (*driver.Client, error) {
+		var ok bool
+		initDeadline, ok = ctx.Deadline()
+		if !ok {
+			t.Error("初始化未获得预算")
+		}
+		return &driver.Client{}, nil
+	}
+	store.clients.disconnect = func(context.Context, *driver.Client) error { return nil }
+	store.find = func(ctx context.Context, _ *driver.Client, _, _, _ string) ([]byte, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || initDeadline.IsZero() || deadline.After(initDeadline) {
+			t.Error("连接完成后重新计算了查询预算")
+		}
+		return gzipBytes(t, []byte("7")), nil
+	}
+	if value, err := store.Query(context.Background(), "lookup", map[string]int{"a": 0}); err != nil || value["a"] != 7 {
+		t.Error("正常查询结果改变")
+	}
+	if err := store.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStoreQueryPreservesCallerCancellationAndDeadline(t *testing.T) {
+	for _, canceled := range []bool{true, false} {
+		t.Run(map[bool]string{true: "已取消不连接", false: "上游更早截止"}[canceled], func(t *testing.T) {
+			store, err := NewStore(config.MongoDBConfig{DSN: "synthetic-invalid-dsn", Database: "synthetic", MaxPool: 1, Timeout: "2s"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if canceled {
+				cancel()
+			}
+			store.clients.connect = func(context.Context) (*driver.Client, error) {
+				if canceled {
+					t.Error("已取消请求仍连接")
+				}
+				return &driver.Client{}, nil
+			}
+			store.clients.disconnect = func(context.Context, *driver.Client) error { return nil }
+			store.find = func(queryCtx context.Context, _ *driver.Client, _, _, _ string) ([]byte, error) {
+				if canceled {
+					t.Error("已取消请求仍查询")
+				}
+				want, _ := ctx.Deadline()
+				got, ok := queryCtx.Deadline()
+				if !ok || !got.Equal(want) {
+					t.Error("未保留上游更早截止时间")
+				}
+				return gzipBytes(t, []byte("7")), nil
+			}
+			_, err = store.Query(ctx, "lookup", map[string]int{"a": 0})
+			if canceled && !errors.Is(err, context.Canceled) {
+				t.Fatalf("取消错误=%v", err)
+			}
+			if !canceled && err != nil {
+				t.Fatal(err)
 			}
 			if err := store.Close(context.Background()); err != nil {
 				t.Fatal(err)

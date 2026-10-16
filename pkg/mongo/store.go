@@ -24,8 +24,9 @@ func NewStore(cfg config.MongoDBConfig) (*Store, error) {
 		cfg.Collection = "data_20251101_0"
 	}
 	return &Store{cfg: cfg, clients: clientManager{
-		connect:    func(ctx context.Context) (*driver.Client, error) { return connectMongoClientWithConfig(ctx, cfg) },
-		disconnect: func(ctx context.Context, client *driver.Client) error { return client.Disconnect(ctx) },
+		initTimeout: mongoTimeout(cfg.Timeout),
+		connect:     func(ctx context.Context) (*driver.Client, error) { return connectMongoClientWithConfig(ctx, cfg) },
+		disconnect:  func(ctx context.Context, client *driver.Client) error { return client.Disconnect(ctx) },
 	}, find: findStoredPayload}, nil
 }
 
@@ -34,12 +35,12 @@ func (store *Store) Query(ctx context.Context, phone string, mapping map[string]
 	if len(mapping) == 0 {
 		return nil, fmt.Errorf("%w: mapping is required", ErrInvalidData)
 	}
-	client, err := store.clients.get(ctx)
+	queryCtx, cancel := context.WithTimeout(ctx, mongoTimeout(store.cfg.Timeout))
+	defer cancel()
+	client, err := store.clients.get(queryCtx)
 	if err != nil {
 		return nil, err
 	}
-	queryCtx, cancel := context.WithTimeout(ctx, mongoTimeout(store.cfg.Timeout))
-	defer cancel()
 	data, err := store.find(queryCtx, client, store.cfg.Database, store.cfg.Collection, phone)
 	if err != nil {
 		return nil, err

@@ -65,6 +65,7 @@ go test -race cmd/sync_mysql_redis.go cmd/sync_mysql_redis_test.go
 限流构造不启动 worker；bootstrap 显式 Start，SetupRoute 返回的关闭函数必须由调用方执行。
 限流采用每 IP 独立固定窗口，到期重置；外层 Recovery 兜底、日志内部 Recovery 处理业务 Panic，完成日志记录实际响应。
 关闭顺序为 HTTP → 限流 → MySQL同步 → 缓存/回源 → MySQL → Mongo → Redis → 请求日志；HTTP/依赖各5s预算，HTTP失败强制Close。
+Mongo 初始化锁外合并、等待可独立取消；MONGODB_TIMEOUT 覆盖初始化等待与Find，Close取消初始化并清理迟到客户端，不重开。
 服务退出等待另有最多 5s 保护；错误返回到入口决定失败退出码，不由 goroutine Fatal。
 
 ## 渐进加载

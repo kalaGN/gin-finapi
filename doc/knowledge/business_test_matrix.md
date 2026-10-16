@@ -1,7 +1,7 @@
 # 已确认业务场景与测试矩阵
 
 核对日期：2026-10-16。范围：当前代码与已确认Spec中的规则，不包含尚未实现需求或所有可能环境故障。
-本轮仅改测试及文档；测试源码与执行结果为证据。新增需求/合同修改时应同步更新本矩阵。
+最初补测仅改测试及文档；后续Mongo初始化边界修复同步补充DATA-03。测试源码与执行结果为证据。
 
 ## 离线场景
 
@@ -22,6 +22,7 @@
 | QUERY-02 | Mongo未查得3001、不可用9002、超时/取消9003、坏数据/未知错误9001；不泄露内部异常 | TestLoanBusinessScenarioMatrix、[diagnostics_test.go](../../app/Http/controllers/loan/diagnostics_test.go) |
 | DATA-01 | BSON t/v与gzip/CSV合同、严格整数/字段数、索引映射和坏压缩拒绝 | [contract_test.go](../../pkg/mongo/contract_test.go)、[codec_test.go](../../pkg/mongo/codec_test.go)、[mongo_test.go](../../pkg/mongo/mongo_test.go) |
 | DATA-02 | Mongo初始化失败不查询、默认集合/查询预算、Find失败/坏gzip传播 | TestStoreQueryFailureBoundaries；[store_test.go](../../pkg/mongo/store_test.go) |
+| DATA-03 | 慢初始化不持锁、独立等待取消、同轮失败共享/后续重试、首请求取消隔离、总预算/上游截止、关闭取消/迟到候选清理/重复关闭 | [mongo_test.go](../../pkg/mongo/mongo_test.go)、[store_test.go](../../pkg/mongo/store_test.go)；[修复Spec](../specs/20261016-Mongo初始化边界-设计.md) |
 | CACHE-01 | 无年龄TTL、逐请求状态/到期、LRU、缺失不缓存、刷新旋转/删除/损坏/故障保留 | [reader_test.go](../../app/configdata/reader_test.go) |
 | CACHE-02 | 合并读取、等待者独立取消、并发门/排队预算、映射拷贝隔离、关闭取消回源 | [reader_test.go](../../app/configdata/reader_test.go)、[concurrent_test.go](../../app/configdata/concurrent_test.go) |
 | CACHE-03 | 内存关闭逐次读源，不回填/合并；MySQL回源仍有效 | TestReaderDisabledReadsEverySourceAndNeverCaches、TestLoanBusinessScenarioMatrix |
@@ -45,6 +46,8 @@
 | CLI-02 | Redis SET NX保留已有键、显式样例、旧Hash迁移拒绝坏源并保留源和目标 | [init_redis_test.go](../../cmd/init_redis_test.go) |
 
 ## 本次指标
+
+以下是业务场景补测提交2b8bb03的历史快照，不代表后续Mongo生命周期修复后的覆盖率。
 
 同一口径：`go test ./... -coverpkg=./... -coverprofile=...`，合并跨包命中后使用go tool cover；
 不是把每个包打印的百分比简单平均。CLI因build tag另测，不并入默认模块覆盖率。
