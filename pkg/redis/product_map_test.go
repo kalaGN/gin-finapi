@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kalaGN/gin-finapi/app/services"
 	"github.com/kalaGN/gin-finapi/pkg/config"
 	driver "github.com/redis/go-redis/v9"
 )
@@ -28,6 +29,45 @@ func TestParseProductMap(t *testing.T) {
 				t.Fatalf("mapping=%v, err=%v", got, err)
 			}
 		})
+	}
+}
+
+func TestReadProductMapUnifiedSourceContract(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw       string
+		sourceErr, want error
+		found           bool
+	}{
+		{"正常", `{"a":0}`, nil, nil, true},
+		{"缺失", "", driver.Nil, nil, false},
+		{"损坏", `{"a":null}`, nil, services.ErrInvalidRecord, false},
+		{"故障", "", errors.New("synthetic-driver-failure"), ErrMappingUnavailable, false},
+		{"超时", "", context.DeadlineExceeded, ErrMappingUnavailable, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			maps := &ProductMaps{timeout: time.Second, get: func(ctx context.Context, key string) (string, error) {
+				if key != ProductMapRedisKey(10001) {
+					t.Error("产品键错误")
+				}
+				if _, ok := ctx.Deadline(); !ok {
+					t.Error("未设置读取预算")
+				}
+				return tc.raw, tc.sourceErr
+			}}
+			value, found, err := maps.ReadProductMap(context.Background(), 10001)
+			if found != tc.found || !errors.Is(err, tc.want) {
+				t.Fatal("统一读取契约错误")
+			}
+			if found && value["a"] != 0 {
+				t.Fatal("映射变化")
+			}
+		})
+	}
+	if err := ValidateProductMap(`{"a":0}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateProductMap(`{}`); !errors.Is(err, ErrProductMapping) {
+		t.Fatal("无效映射通过迁移校验")
 	}
 }
 

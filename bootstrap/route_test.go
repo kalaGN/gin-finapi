@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,29 @@ func TestNewRouter_ConfigCacheEnabledAndDisabled(t *testing.T) {
 		if err := closeDependencies(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestNewRouterConstructorRejectsPartialInitialization(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*config.AppConfig)
+	}{
+		{"Redis配置无效", func(c *config.AppConfig) { c.Redis.PoolSize = 0 }},
+		{"MySQL配置无效", func(c *config.AppConfig) { c.MySQL.Enabled = true }},
+		{"Mongo配置缺失", func(c *config.AppConfig) { c.MongoDB.Database = "" }},
+		{"请求日志后端错误", func(c *config.AppConfig) { c.RequestLog.Output = "unsupported" }},
+		{"文件日志路径错误", func(c *config.AppConfig) {
+			c.RequestLog = config.RequestLogConfig{Output: "file", File: filepath.Join(t.TempDir(), "missing", "request.log"), QueueSize: 1}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.AppConfig{MongoDB: config.MongoDBConfig{DSN: "synthetic-invalid-dsn", Database: "synthetic", MaxPool: 1}, Redis: config.RedisConfig{Addr: "synthetic.invalid:6379", PoolSize: 1, Timeout: time.Second}, RateLimit: config.RateLimitConfig{Requests: 100, Window: time.Second}}
+			tc.change(&cfg)
+			router, closeDependencies, err := NewRouter(cfg, nil)
+			if err == nil || router != nil || closeDependencies != nil {
+				t.Fatal("部分装配失败后暴露了可使用的路由或资源")
+			}
+		})
 	}
 }

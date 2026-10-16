@@ -16,12 +16,56 @@ type fakeSyncRedis struct {
 	acquired bool
 	err      error
 	evals    int
+	sets     int
 	result   []interface{}
 	check    func(string, []string, []interface{})
 }
 
 func (f *fakeSyncRedis) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) *driver.BoolCmd {
+	f.sets++
 	return driver.NewBoolResult(f.acquired, f.err)
+}
+
+func TestConfigPublisherLeaseReleaseAndFailureBoundaries(t *testing.T) {
+	fake := &fakeSyncRedis{}
+	p := &ConfigPublisher{client: fake}
+	if _, _, err := p.Acquire(context.Background(), 0); !errors.Is(err, ErrSyncUnavailable) || fake.sets != 0 {
+		t.Fatal("无效租约触及Redis")
+	}
+	if token, acquired, err := p.Acquire(context.Background(), time.Second); err != nil || acquired || token != "" {
+		t.Fatal("租约竞争不应报成功")
+	}
+	if err := p.Release(context.Background(), ""); !errors.Is(err, ErrSyncLeaseLost) || fake.evals != 0 {
+		t.Fatal("空令牌发生释放")
+	}
+	fake.check = func(script string, keys []string, args []interface{}) {
+		if script != releaseSyncLua || len(keys) != 1 || keys[0] != syncLockKey || len(args) != 1 || args[0] != "synthetic-token" {
+			t.Fatal("释放未绑定令牌")
+		}
+	}
+	if err := p.Release(context.Background(), "synthetic-token"); err != nil {
+		t.Fatal(err)
+	}
+	fake.check = nil
+	for _, result := range [][]interface{}{nil, {int64(1)}, {"wrong", int64(0)}, {int64(1), "wrong"}, {int64(1), int64(-1)}} {
+		fake.result = result
+		if _, err := p.Publish(context.Background(), "synthetic-token", publicationSnapshot()); !errors.Is(err, ErrSyncUnavailable) {
+			t.Fatal("不合法发布响应未拒绝")
+		}
+	}
+	if _, err := p.Publish(context.Background(), "", publicationSnapshot()); !errors.Is(err, ErrSyncLeaseLost) {
+		t.Fatal("空令牌允许发布")
+	}
+	fake.err = errors.New("synthetic-private-redis-detail")
+	for _, err := range []error{p.Release(context.Background(), "synthetic-token"), p.Close()} {
+		if !errors.Is(err, ErrSyncUnavailable) || strings.Contains(err.Error(), "private-redis") {
+			t.Fatal("释放或关闭错误未脱敏")
+		}
+	}
+	fake.err = nil
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 func (f *fakeSyncRedis) Eval(ctx context.Context, script string, keys []string, args ...interface{}) *driver.Cmd {
 	f.evals++

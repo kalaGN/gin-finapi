@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -106,5 +107,55 @@ func TestApplySchemaStopsOnFailure(t *testing.T) {
 		if err != nil && strings.Contains(err.Error(), "private-driver-detail") {
 			t.Fatal("Schema泄露驱动错误")
 		}
+	}
+}
+
+func TestSeedSamplesRollsBackAtEveryWriteFailure(t *testing.T) {
+	for failAt := 1; failAt <= 8; failAt++ {
+		t.Run(fmt.Sprintf("第%d次写入失败", failAt), func(t *testing.T) {
+			writes := 0
+			f := &fakeConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return &fixtureRows{}, nil }, exec: func(context.Context, string, []driver.NamedValue) (driver.Result, error) {
+				writes++
+				if writes == failAt {
+					return nil, errors.New("synthetic-private-write-detail")
+				}
+				return driver.RowsAffected(1), nil
+			}}
+			stats, err := testStore(t, f).SeedSamples(context.Background())
+			if err == nil || strings.Contains(err.Error(), "private-write") || stats != (SeedStats{}) || f.commits != 0 || f.rollbacks != 1 || writes != failAt {
+				t.Fatal("部分种子写入未回滚或继续执行")
+			}
+		})
+	}
+	for _, stage := range []string{"begin", "commit", "key-conflict"} {
+		t.Run(stage, func(t *testing.T) {
+			f := &fakeConnector{query: func(_ context.Context, q string, _ []driver.NamedValue) (driver.Rows, error) {
+				if stage == "key-conflict" {
+					switch {
+					case strings.Contains(q, "FROM api_customers"):
+						return &fixtureRows{width: 1, rows: [][]driver.Value{{sampleCustomerName}}}, nil
+					case strings.Contains(q, "FROM api_products"):
+						return &fixtureRows{width: 1, rows: [][]driver.Value{{int64(10001)}}}, nil
+					case strings.Contains(q, "FROM api_keys"):
+						return &fixtureRows{width: 3, rows: [][]driver.Value{{int64(99), int64(2), services.Digest("other")}}}, nil
+					}
+				}
+				return &fixtureRows{}, nil
+			}}
+			failure := errors.New("synthetic-private-transaction-detail")
+			if stage == "begin" {
+				f.begin = func(driver.TxOptions) error { return failure }
+			}
+			if stage == "commit" {
+				f.commitErr = failure
+			}
+			stats, err := testStore(t, f).SeedSamples(context.Background())
+			if err == nil || stats != (SeedStats{}) || strings.Contains(err.Error(), "private-transaction") {
+				t.Fatal("事务错误未安全返回")
+			}
+			if stage == "key-conflict" && (f.commits != 0 || f.rollbacks != 1) {
+				t.Fatal("Key冲突未回滚")
+			}
+		})
 	}
 }

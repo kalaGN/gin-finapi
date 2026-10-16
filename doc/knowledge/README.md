@@ -8,6 +8,7 @@ Knowledge 只记录已确认的项目事实、当前实现和历史决策。强�
 
 | 文件 | 内容 | 使用场景 | 可信度与限制 |
 | --- | --- | --- | --- |
+| [`business_test_matrix.md`](business_test_matrix.md) | 已确认业务→测试证据、跨包覆盖率和未验证环境边界 | 补测、回归、发布评审 | 离线矩阵已验证；不承诺所有环境故障穷尽 |
 | [`mysql_configuration.md`](mysql_configuration.md) | MySQL配置四表、加密、回源、定时/手动同步与真实验证 | 配置数据与同步运维 | 本地MySQL9.6.0和临时Redis7.4.2已验证；未写业务Redis、未验证生产容量 |
 | [`performance_baseline_20261015.md`](performance_baseline_20261015.md) | 当前版本缓存开关、并发 1/32、异步文件日志的进程内实测 | 处理路径性能回归参考 | 合成内存源，无 Redis/Mongo/网络容量结论；真实依赖基线待建立 |
 | [`project_analysis.md`](project_analysis.md) | 当前调用链、P1/P2 生命周期/实例配置/业务边界、Redis 映射与历史风险审计 | 规划、评审、整改排序 | 最新节覆盖历史描述；隔离 Redis/Mongo 链路已验证，生产断线恢复与容量待验证 |

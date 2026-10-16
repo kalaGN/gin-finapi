@@ -3,11 +3,18 @@ package mysql
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +28,8 @@ type fakeConnector struct {
 	query              func(context.Context, string, []driver.NamedValue) (driver.Rows, error)
 	exec               func(context.Context, string, []driver.NamedValue) (driver.Result, error)
 	begin              func(driver.TxOptions) error
+	ping               func(context.Context) error
+	commitErr          error
 	commits, rollbacks int
 }
 
@@ -35,6 +44,12 @@ type fakeConn struct{ f *fakeConnector }
 
 func (c *fakeConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("not used") }
 func (c *fakeConn) Close() error                        { return nil }
+func (c *fakeConn) Ping(ctx context.Context) error {
+	if c.f.ping != nil {
+		return c.f.ping(ctx)
+	}
+	return ctx.Err()
+}
 func (c *fakeConn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
@@ -61,12 +76,13 @@ func (c *fakeConn) ExecContext(ctx context.Context, q string, a []driver.NamedVa
 
 type fakeTx struct{ f *fakeConnector }
 
-func (tx *fakeTx) Commit() error   { tx.f.commits++; return nil }
+func (tx *fakeTx) Commit() error   { tx.f.commits++; return tx.f.commitErr }
 func (tx *fakeTx) Rollback() error { tx.f.rollbacks++; return nil }
 
 type fixtureRows struct {
 	width int
 	rows  [][]driver.Value
+	err   error
 }
 
 func (r *fixtureRows) Columns() []string {
@@ -79,6 +95,9 @@ func (r *fixtureRows) Columns() []string {
 func (r *fixtureRows) Close() error { return nil }
 func (r *fixtureRows) Next(dst []driver.Value) error {
 	if len(r.rows) == 0 {
+		if r.err != nil {
+			return r.err
+		}
 		return io.EOF
 	}
 	copy(dst, r.rows[0])
@@ -276,5 +295,221 @@ func TestMySQLStoreCanceledAndClosed(t *testing.T) {
 	}
 	if _, _, err := s.ReadCredential(context.Background(), services.Digest("key")); !errors.Is(err, services.ErrAuthUnavailable) {
 		t.Fatal("关闭后仍可读取")
+	}
+}
+
+func TestMySQLConstructorTLSAndPoolConfiguration(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := &x509.Certificate{SerialNumber: big.NewInt(1), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, private.Public(), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	ca := filepath.Join(dir, "ca.pem")
+	invalidCA := filepath.Join(dir, "invalid.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(invalidCA, []byte("synthetic-private-invalid-ca"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(*config.MySQLConfig)
+		bad    bool
+	}{
+		{"本地配置", func(*config.MySQLConfig) {}, false},
+		{"验证系统CA", func(c *config.MySQLConfig) { c.TLSMode = "verify_identity" }, false},
+		{"自定义CA和名称", func(c *config.MySQLConfig) {
+			c.TLSMode = "verify_identity"
+			c.TLSCAFile = ca
+			c.TLSServerName = "synthetic.invalid"
+		}, false},
+		{"关闭MySQL", func(c *config.MySQLConfig) { c.Enabled = false }, true},
+		{"缺失用户", func(c *config.MySQLConfig) { c.User = "" }, true},
+		{"CA文件缺失", func(c *config.MySQLConfig) {
+			c.TLSMode = "verify_identity"
+			c.TLSCAFile = filepath.Join(dir, "missing.pem")
+		}, true},
+		{"CA损坏", func(c *config.MySQLConfig) { c.TLSMode = "verify_identity"; c.TLSCAFile = invalidCA }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig()
+			tc.change(&cfg)
+			store, err := NewStore(cfg)
+			if (err != nil) != tc.bad {
+				t.Fatal("构造校验结果错误")
+			}
+			if err != nil {
+				if strings.Contains(err.Error(), cfg.Password) || strings.Contains(err.Error(), "private-invalid-ca") {
+					t.Fatal("构造泄露敏感信息")
+				}
+				return
+			}
+			if stats := store.db.Stats(); stats.OpenConnections != 0 || stats.MaxOpenConnections != cfg.MaxOpenConns {
+				t.Fatal("构造发生连接或未配置连接池")
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestMySQLPingPreservesSafeFailureClassification(t *testing.T) {
+	for _, failure := range []error{nil, errors.New("synthetic-private-connect-detail"), context.DeadlineExceeded, context.Canceled} {
+		f := &fakeConnector{ping: func(ctx context.Context) error {
+			if _, ok := ctx.Deadline(); !ok {
+				t.Error("连接探测无超时预算")
+			}
+			return failure
+		}}
+		err := testStore(t, f).Ping(context.Background())
+		if failure == nil {
+			if err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if !errors.Is(err, services.ErrUnavailable) || strings.Contains(err.Error(), "private-connect") {
+			t.Fatal("连接错误未安全转换")
+		}
+		if (failure == context.Canceled || failure == context.DeadlineExceeded) && !errors.Is(err, failure) {
+			t.Fatal("取消或超时语义丢失")
+		}
+	}
+}
+
+func TestMySQLProductAccessRejectsMissingCorruptAndMismatchedRows(t *testing.T) {
+	digest := services.Digest("key")
+	key := services.ProductKey{Digest: digest, Pcode: 10001}
+	for _, tc := range []struct {
+		name     string
+		row      []driver.Value
+		queryErr error
+		want     error
+	}{
+		{"缺失", nil, nil, nil},
+		{"SQL故障", nil, errors.New("synthetic-private-detail"), services.ErrAuthUnavailable},
+		{"返回错误产品", []driver.Value{digest, int64(10002), int64(1), int64(0), int64(1), int64(0), int64(1)}, nil, services.ErrInvalidRecord},
+		{"非法状态", []driver.Value{digest, int64(10001), int64(2), int64(0), int64(1), int64(0), int64(1)}, nil, services.ErrInvalidRecord},
+		{"超大到期", []driver.Value{digest, int64(10001), int64(1), "18446744073709551615", int64(1), int64(0), int64(1)}, nil, services.ErrInvalidRecord},
+		{"扫描失败", []driver.Value{digest, "not-an-int", int64(1), int64(0), int64(1), int64(0), int64(1)}, nil, services.ErrAuthUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+				if tc.queryErr != nil {
+					return nil, tc.queryErr
+				}
+				rows := &fixtureRows{width: 7}
+				if tc.row != nil {
+					rows.rows = [][]driver.Value{tc.row}
+				}
+				return rows, nil
+			}}
+			_, found, err := testStore(t, f).ReadProductAccess(context.Background(), key)
+			if found || !errors.Is(err, tc.want) {
+				t.Fatal("授权坏数据或缺失未安全拒绝")
+			}
+			if err != nil && strings.Contains(err.Error(), "private-detail") {
+				t.Fatal("错误泄漏")
+			}
+		})
+	}
+	f := &fakeConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+		t.Fatal("无效参数触及SQL")
+		return nil, nil
+	}}
+	s := testStore(t, f)
+	if _, _, err := s.ReadCredential(context.Background(), "raw-key"); !errors.Is(err, services.ErrInvalidRecord) {
+		t.Fatal("无效摘要未拒绝")
+	}
+	for _, invalid := range []services.ProductKey{{Digest: "raw-key", Pcode: 10001}, {Digest: digest, Pcode: 10000}, {Digest: digest, Pcode: 100000}} {
+		if _, _, err := s.ReadProductAccess(context.Background(), invalid); !errors.Is(err, services.ErrInvalidRecord) {
+			t.Fatal("非法授权参数未拒绝")
+		}
+	}
+}
+
+func TestSnapshotRejectsEveryPartialFailure(t *testing.T) {
+	for _, scenario := range []string{"begin", "credential-query", "credential-scan", "credential-duplicate", "credential-iteration", "mapping-query", "mapping-scan", "mapping-invalid", "mapping-duplicate", "mapping-iteration", "access-query", "access-scan", "access-duplicate", "access-iteration", "orphan", "commit"} {
+		t.Run(scenario, func(t *testing.T) {
+			failure := errors.New("synthetic-private-database-detail")
+			f := &fakeConnector{}
+			s := testStore(t, f)
+			digest := services.Digest("key")
+			encrypted, err := s.secrets.encrypt(digest, "secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "begin" {
+				f.begin = func(driver.TxOptions) error { return failure }
+			}
+			if scenario == "commit" {
+				f.commitErr = failure
+			}
+			f.query = func(_ context.Context, q string, _ []driver.NamedValue) (driver.Rows, error) {
+				stage := "mapping"
+				row := []driver.Value{int64(10001), `{"a":0}`}
+				if q == credentialSelect {
+					stage = "credential"
+					row = []driver.Value{digest, encrypted, "test-v1", int64(1), int64(0), int64(1)}
+				}
+				if q == accessSelect {
+					stage = "access"
+					row = []driver.Value{digest, int64(10001), int64(1), int64(0), int64(1), int64(0), int64(1)}
+				}
+				if scenario == stage+"-query" {
+					return nil, failure
+				}
+				if scenario == stage+"-scan" {
+					row[0] = nil
+				}
+				if scenario == "mapping-invalid" && stage == "mapping" {
+					row[1] = `{}`
+				}
+				if scenario == "orphan" && stage == "access" {
+					row[1] = int64(10002)
+				}
+				rows := &fixtureRows{width: len(row), rows: [][]driver.Value{row}}
+				if scenario == stage+"-duplicate" {
+					rows.rows = append(rows.rows, row)
+				}
+				if scenario == stage+"-iteration" {
+					rows.err = failure
+				}
+				return rows, nil
+			}
+			snapshot, err := s.Snapshot(context.Background())
+			if err == nil || snapshot.Credentials != nil || snapshot.Products != nil || snapshot.Mappings != nil || strings.Contains(err.Error(), "private-database") {
+				t.Fatal("失败暴露部分结果或敏感信息")
+			}
+			if scenario == "commit" {
+				if f.commits != 1 {
+					t.Fatal("未模拟提交错误")
+				}
+			} else if f.commits != 0 {
+				t.Fatal("部分失败仍提交")
+			}
+			if scenario != "begin" && scenario != "commit" && f.rollbacks != 1 {
+				t.Fatal("失败事务未回滚")
+			}
+		})
+	}
+}
+
+func TestMySQLMissingMappingAndCompleteEmptySnapshot(t *testing.T) {
+	f := &fakeConnector{query: func(context.Context, string, []driver.NamedValue) (driver.Rows, error) { return &fixtureRows{}, nil }}
+	s := testStore(t, f)
+	if value, found, err := s.ReadProductMap(context.Background(), 10001); err != nil || found || value != nil {
+		t.Fatal("缺失映射不应伪装成故障或默认映射")
+	}
+	snapshot, err := s.Snapshot(context.Background())
+	if err != nil || snapshot.Validate() != nil || len(snapshot.Credentials)+len(snapshot.Products)+len(snapshot.Mappings) != 0 || f.commits != 1 {
+		t.Fatal("完整空库与读取失败未区分")
 	}
 }
