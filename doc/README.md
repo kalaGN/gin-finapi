@@ -6,6 +6,9 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`knowledge/api_reference.md`](knowledge/api_reference.md) | Knowledge / 使用 | HTTP接口、签名、phone规则、管理接口与响应 | 客户端接入与接口排障 |
+| [`knowledge/configuration.md`](knowledge/configuration.md) | Knowledge / 配置 | 环境变量、缓存、Redis映射与凭据、可选MySQL | 环境准备与配置维护 |
+| [`knowledge/operations.md`](knowledge/operations.md) | Knowledge / 运维 | 目录职责、开发门禁、部署、生命周期与日志 | 开发验证与运行维护 |
 | [`specs/20261016-请求流程计时-设计.md`](specs/20261016-请求流程计时-设计.md) | Specs / 设计 | 请求日志累计节点对象、公共Context计时与兼容边界 | 耗时统计及日志消费 |
 | [`specs/20261016-Mongo初始化边界-设计.md`](specs/20261016-Mongo初始化边界-设计.md) | Specs / 设计 | 初始化合并、独立取消、查询总预算与关闭清理 | Mongo生命周期维护 |
 | [`knowledge/business_test_matrix.md`](knowledge/business_test_matrix.md) | Knowledge / 测试 | 已确认业务场景、测试证据、覆盖率与环境边界 | 补测与回归验收 |
@@ -46,7 +49,8 @@
 | [`knowledge/project_analysis.md`](knowledge/project_analysis.md) | Knowledge / 审计 | 当前仓库事实、风险、证据和待确认项 | 规划整改、Code Review |
 | [`knowledge/performance_test_report.md`](knowledge/performance_test_report.md) | Knowledge | 2025-11-15 本地 Apache Bench 历史结果 | 性能变更前的历史参考 |
 | [`knowledge/gin_migration_design.md`](knowledge/gin_migration_design.md) | Knowledge / 历史设计 | Iris 迁移 Gin 的历史方案 | 追溯迁移决策；不能作为当前实现说明 |
-| [`../README.md`](../README.md) | 使用说明 | 项目介绍、环境变量和启动示例 | 本地启动；内容需与代码交叉验证 |
+| [`../README.md`](../README.md) | 默认英文入口 | 英文简介、启动、检查及中文详细文档导航 | 首次使用 |
+| [`../README.zh-CN.md`](../README.zh-CN.md) | 中文入口 | 中文简介、快速启动、基础检查和文档入口 | 中文读者首次使用 |
 | [`../cmd/README.md`](../cmd/README.md) | 操作说明 | MongoDB 测试数据及 Redis 产品映射初始化 | 仅明确授权的数据初始化任务 |
 | [`../tests/bench/README.md`](../tests/bench/README.md) | 操作说明 | 历史压测脚本使用方法 | 非生产压测，需先校验请求契约 |
 
