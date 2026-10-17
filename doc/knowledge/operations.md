@@ -182,6 +182,29 @@ auth 包含参数、凭据、验签及产品授权，成功时在业务查询前
 新增统计节点可用 `pkg/utils.StartTiming(ctx)`、`MarkTiming(ctx, "固定节点名")`、`TimingSnapshot(ctx)`；
 计时器经Context传递、并发安全、同名首次有效，输出独立快照，不使用请求参数作为节点名。
 
+### Mongo内部耗时
+
+Mongo查询额外记录以下累计节点；相邻节点相减才是对应步骤的近似耗时（毫秒取整）：
+
+| 节点 | 表示执行到的位置 |
+| --- | --- |
+| mongo_start | 开始获取Mongo客户端 |
+| mongo_client | 获取客户端返回；冷连接可能等待初始化，热连接复用实例 |
+| mongo_find | FindOne及BSON解码返回，包含连接池等待及网络往返 |
+| gzip | gzip解压返回 |
+| csv_map | CSV切分、整数转换及变量映射返回 |
+
+例如以下为说明用数据，不是实测：
+
+```json
+{"duration_ms":{"entry":0,"auth":0,"product_map":0,"mongo_start":0,"mongo_client":2,"mongo_find":28,"gzip":29,"csv_map":30,"query":30,"finish":30}}
+```
+
+客户端获取约2ms、查询及BSON解码约26ms、解压约1ms、解析映射约1ms。
+不能从mongo_find直接推断数据库服务器执行时间；失败请求只记录已执行步骤（含错误返回），
+未查得没有gzip/csv_map，坏gzip没有csv_map。仍不记录内部数据或敏感错误。
+细分设计见 [流程计时Spec](../specs/20261016-请求流程计时-设计.md#2026-10-17-mongo内部节点扩展)。
+
 ## 历史版本 v1.0.1（2026-10-13）
 
 本次按维护者要求采用补丁版本号；包含客户端不兼容调整，并非完全向后兼容的补丁。

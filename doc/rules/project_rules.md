@@ -283,6 +283,9 @@ go build ./...
   仅记录实际执行节点；auth在Next前结束，失败返回也记录。finish不含日志整理/排队/写入。
   公共方法为pkg/utils.StartTiming、MarkTiming、TimingSnapshot；同名首次有效、快照隔离、固定节点名，
   禁止请求输入成为节点名。后台缓存刷新/MySQL同步的duration_ms仍为整数，外部请求日志消费者须适配新类型。
+  Mongo查询细分mongo_start（获取客户端前）、mongo_client（获取返回）、mongo_find（Find/BSON解码返回）、
+  gzip（解压返回）、csv_map（CSV切分/整数解析/映射返回）。失败返回也标记已执行步骤，未执行的不补0；
+  客户端耗时按请求等待统计，不在共享初始化goroutine中绑定首个请求；mongo_find不是纯数据库执行时间。
 - 签名仍使用 MD5，但比较已使用常量时间实现；五分钟内仍没有 nonce/幂等防重放机制。
 - CORS 为 `*`；允许来源、凭据需求和反向代理信任边界待确认。
 - LoanHandler 不记录 Mongo/解压原始错误，客户端只返回稳定错误码和文案；

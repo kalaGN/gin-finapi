@@ -437,16 +437,16 @@ func TestProcessUserData_StrictlyValidatesAllFields(t *testing.T) {
 }
 
 func TestDecodeUserData_RejectsCorruptPayload(t *testing.T) {
-	if _, err := decodeUserData([]byte("not gzip"), testVariableMapping()); !errors.Is(err, ErrInvalidData) {
+	if _, err := decodeUserData(context.Background(), []byte("not gzip"), testVariableMapping()); !errors.Is(err, ErrInvalidData) {
 		t.Fatalf("decodeUserData(corrupt, testVariableMapping()) error = %v, want ErrInvalidData", err)
 	}
 
 	compressed := gzipBytes(t, []byte("1,2,3,4,5"))
-	if _, err := decodeUserData(compressed, testVariableMapping()); !errors.Is(err, ErrInvalidData) {
+	if _, err := decodeUserData(context.Background(), compressed, testVariableMapping()); !errors.Is(err, ErrInvalidData) {
 		t.Fatalf("decodeUserData(short payload, testVariableMapping()) error = %v, want ErrInvalidData", err)
 	}
 
-	got, err := decodeUserData(gzipBytes(t, []byte("1,2,3,4,5,6")), testVariableMapping())
+	got, err := decodeUserData(context.Background(), gzipBytes(t, []byte("1,2,3,4,5,6")), testVariableMapping())
 	if err != nil {
 		t.Fatalf("decodeUserData(valid payload, testVariableMapping()) error = %v", err)
 	}

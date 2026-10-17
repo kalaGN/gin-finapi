@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kalaGN/gin-finapi/pkg/config"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 	driver "go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -125,6 +126,86 @@ func TestStoreQueryFailureBoundaries(t *testing.T) {
 			}
 			if finds != wantFinds {
 				t.Fatal("初始化失败后仍执行查询")
+			}
+			if err := store.Close(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestStoreQueryTimingStages(t *testing.T) {
+	stages := []string{"mongo_start", "mongo_client", "mongo_find", "gzip", "csv_map"}
+	for _, tc := range []struct {
+		name                string
+		connectErr, findErr error
+		payload             string
+		missingMap, badGzip bool
+		want                error
+		completed           int
+	}{
+		{name: "成功", payload: "7", completed: 5},
+		{name: "缺少映射", missingMap: true, want: ErrInvalidData},
+		{name: "初始化失败", connectErr: ErrUnavailable, want: ErrUnavailable, completed: 2},
+		{name: "初始化超时", connectErr: context.DeadlineExceeded, want: context.DeadlineExceeded, completed: 2},
+		{name: "初始化取消", connectErr: context.Canceled, want: context.Canceled, completed: 2},
+		{name: "未查得", findErr: ErrNotFound, want: ErrNotFound, completed: 3},
+		{name: "查询故障", findErr: ErrUnavailable, want: ErrUnavailable, completed: 3},
+		{name: "查询超时", findErr: context.DeadlineExceeded, want: context.DeadlineExceeded, completed: 3},
+		{name: "解压失败", badGzip: true, want: ErrInvalidData, completed: 4},
+		{name: "CSV错误", payload: "not-integer", want: ErrInvalidData, completed: 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := utils.StartTiming(context.Background())
+			store, err := NewStore(config.MongoDBConfig{DSN: "synthetic-invalid-dsn", Database: "synthetic", MaxPool: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			store.clients.connect = func(context.Context) (*driver.Client, error) { return &driver.Client{}, tc.connectErr }
+			store.clients.disconnect = func(context.Context, *driver.Client) error { return nil }
+			store.find = func(actual context.Context, _ *driver.Client, _, _, _ string) ([]byte, error) {
+				points := utils.TimingSnapshot(actual)
+				if _, ok := points["mongo_client"]; !ok {
+					t.Error("Find前未标记客户端获取结束")
+				}
+				if _, ok := points["mongo_find"]; ok {
+					t.Error("Find未返回就记录结束")
+				}
+				if tc.findErr != nil {
+					return nil, tc.findErr
+				}
+				if tc.badGzip {
+					return []byte("bad-gzip"), nil
+				}
+				return gzipBytes(t, []byte(tc.payload)), nil
+			}
+			mapping := map[string]int{"a": 0}
+			if tc.missingMap {
+				mapping = nil
+			}
+			result, err := store.Query(ctx, "synthetic", mapping)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("错误分类改变=%v", err)
+			}
+			if tc.want == nil && result["a"] != 7 {
+				t.Fatalf("查询结果=%v", result)
+			}
+			points := utils.TimingSnapshot(ctx)
+			if len(points) != tc.completed+1 {
+				t.Fatalf("节点集合=%v", points)
+			}
+			previous := int64(0)
+			for i, name := range stages {
+				value, ok := points[name]
+				if ok != (i < tc.completed) {
+					t.Fatalf("节点%s执行状态错误=%v", name, points)
+				}
+				if ok && value < previous {
+					t.Fatalf("累计节点倒序=%v", points)
+				}
+				if ok {
+					previous = value
+				}
 			}
 			if err := store.Close(context.Background()); err != nil {
 				t.Fatal(err)

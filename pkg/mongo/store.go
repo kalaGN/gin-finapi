@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/kalaGN/gin-finapi/pkg/config"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 	driver "go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -37,15 +38,18 @@ func (store *Store) Query(ctx context.Context, phone string, mapping map[string]
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, mongoTimeout(store.cfg.Timeout))
 	defer cancel()
+	utils.MarkTiming(ctx, "mongo_start")
 	client, err := store.clients.get(queryCtx)
+	utils.MarkTiming(ctx, "mongo_client")
 	if err != nil {
 		return nil, err
 	}
 	data, err := store.find(queryCtx, client, store.cfg.Database, store.cfg.Collection, phone)
+	utils.MarkTiming(ctx, "mongo_find")
 	if err != nil {
 		return nil, err
 	}
-	return decodeUserData(data, mapping)
+	return decodeUserData(queryCtx, data, mapping)
 }
 
 // Close 终止实例，未初始化时不建连接，关闭后不允许再次发布客户端。

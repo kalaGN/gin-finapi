@@ -3,20 +3,26 @@ package mongo
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
-func decodeUserData(data []byte, varList map[string]int) (map[string]int, error) {
+func decodeUserData(ctx context.Context, data []byte, varList map[string]int) (map[string]int, error) {
 	if len(varList) == 0 {
 		return nil, fmt.Errorf("%w: mapping is required", ErrInvalidData)
 	}
 	decompressedData, err := gzipDecompress(data)
+	utils.MarkTiming(ctx, "gzip")
 	if err != nil {
 		return nil, fmt.Errorf("%w: decompress payload: %v", ErrInvalidData, err)
 	}
-	return ProcessUserData(varList, strings.Split(string(decompressedData), ","))
+	result, err := ProcessUserData(varList, strings.Split(string(decompressedData), ","))
+	utils.MarkTiming(ctx, "csv_map")
+	return result, err
 }
 
 func gzipDecompress(data []byte) ([]byte, error) {
