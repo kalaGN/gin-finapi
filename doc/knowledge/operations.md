@@ -127,6 +127,28 @@ SID 生成在全局限流之后；health、404、预检、限流拒绝及生成�
 这不是 HTTP 状态码判断，也不执行实际扣费。`status` 为业务状态码，无业务码时为 null；
 `http_status` 为 HTTP 状态。`input` 记录完整请求体（含未知字段，不含 Header/Query），
 `response_data` 记录实际完整响应；合法 JSON 嵌入为 JSON 值，其他内容为字符串。
+请求完成日志顶层增加字符串`apikey`，仅从/api完整JSON对象Body提取，方便按Key检索；
+认证失败或限流时也可记录，不表示认证通过。缺失、类型错误、坏JSON、超限截断和非/api请求为空字符串。
+不从Header/Query读取，也不采集管理Token；与完整input一样属于敏感日志，只允许受控访问。
+
+2026-10-17起，完成日志另含以下四个字段（示例值，不是实测配置）：
+
+```json
+{"pcode":10001,"config_sources":{"credentials":"memory","product_access":"redis","product_map":"mysql"},"instance_id":"finapi-01","version":"v1.0.2"}
+```
+
+- pcode仅取/api完整Body中的整数；缺失、null、错误类型、溢出、坏JSON、截断或非/api记null。
+  记录整数型非法业务范围值以便排查，不表示参数有效；不从Query/Header补值。
+- config_sources按凭据/产品授权/映射分别记录实际取得记录的层级memory/redis/mysql。
+  禁用/到期的有效记录也计来源；未执行、全部缺失/故障无命中时省略对应键，可能为{}。
+  共享回源结果的所有等待者都记录真实来源；命中旧内存快照仍是memory，不表示新鲜或已同步。
+  取消而未拿到结果不记录命中；后台刷新不会污染请求来源。不记录逐层失败尝试轨迹。
+- instance_id优先INSTANCE_ID，否则hostname:PID；version优先APP_VERSION，否则模块构建版本或
+  git:完整revision，脏构建附+dirty；构建信息不可得为unknown，go run main.go可能属于此情况。
+  部署者可设置APP_VERSION为发布Tag，但本服务不创建Tag，也不以Go版本冒充应用版本。
+- 身份仅在构造/启动时解析，客户端不能覆盖；文件和Redis输出一致，历史日志不回填。
+
+详见 [来源与身份设计](../specs/20261017-请求日志来源身份-设计.md)。
 删除日志顶层 `msg`，响应内的 `msg` 保留；`time` 为日志生成时的 Unix 毫秒整数。
 请求已有 64 KiB 上限；超限请求仅记录前 64 KiB 并标记 `input_truncated=true`，不放宽接口校验。
 按用户确认，请求体中的 API Key、签名及 phone 不脱敏；应严格限制日志访问并确定保留/清理周期。
@@ -162,6 +184,11 @@ Redis 首次失败后重试两次，共最多三次尝试；仍失败则丢弃�
 {
   "level": "info",
   "method": "GET",
+  "apikey": "",
+  "pcode": null,
+  "config_sources": {},
+  "instance_id": "example-host:1234",
+  "version": "unknown",
   "path": "/health",
   "http_status": 200,
   "duration_ms": {"entry": 0, "finish": 0},

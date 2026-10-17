@@ -39,8 +39,10 @@ func (c RateLimitConfig) Validate() error {
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Port string
-	Env  string
+	Port       string
+	Env        string
+	InstanceID string
+	Version    string
 }
 
 // MongoDBConfig MongoDB 配置
@@ -100,9 +102,11 @@ func Load() error {
 	}
 	Config = &AppConfig{
 		Server: ServerConfig{
-			Port: getEnvWithDefault("SERVER_PORT", "8082"),
-			Env:  getEnvWithDefault("ENV", "production"),
-		},
+			Port:       getEnvWithDefault("SERVER_PORT", "8082"),
+			Env:        getEnvWithDefault("ENV", "production"),
+			InstanceID: os.Getenv("INSTANCE_ID"),
+			Version:    os.Getenv("APP_VERSION"),
+		}.WithLogIdentityDefaults(),
 		MongoDB: MongoDBConfig{
 			DSN:        os.Getenv("MONGODB_DSN"),
 			Database:   os.Getenv("MONGODB_DATABASE"),

@@ -6,6 +6,7 @@
 
 | 文档 | 类别 | 职责 | 适用任务 |
 | --- | --- | --- | --- |
+| [`specs/20261017-请求日志来源身份-设计.md`](specs/20261017-请求日志来源身份-设计.md) | Specs / 设计 | pcode、真实配置命中来源、实例与构建版本 | 日志检索与多实例排障 |
 | [`knowledge/api_reference.md`](knowledge/api_reference.md) | Knowledge / 使用 | HTTP接口、签名、phone规则、管理接口与响应 | 客户端接入与接口排障 |
 | [`knowledge/configuration.md`](knowledge/configuration.md) | Knowledge / 配置 | 环境变量、缓存、Redis映射与凭据、可选MySQL | 环境准备与配置维护 |
 | [`knowledge/operations.md`](knowledge/operations.md) | Knowledge / 运维 | 目录职责、开发门禁、部署、生命周期与日志 | 开发验证与运行维护 |

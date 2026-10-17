@@ -31,9 +31,10 @@ Redis String `gin-finapi:product-map:v1:<pcode>` 提供 JSON 变量映射；未�
 - Redis 使用 REDIS_*，`REDIS_TIMEOUT` 默认1s；同步独立发布池，只允许三类配置，不写 charge Redis。
 - 认证与产品映射各自拥有一个 Redis 池，REDIS_POOL_SIZE 是每池参数，不是应用总连接上限。
 - 请求日志：REQUEST_LOG_OUTPUT=file|redis，后台有界队列；redis 使用独立 CHARGE_REDIS_* 池，RPUSH request_log，失败重试两次后丢弃；尚无消费者。
+- 请求日志含pcode、config_sources真实命中层级；INSTANCE_ID/APP_VERSION覆盖实例/版本，默认hostname:PID与构建信息（缺失unknown），不读客户端身份。
 - 请求日志duration_ms为累计毫秒对象；Mongo细分mongo_start/mongo_client/mongo_find/gzip/csv_map，保留entry/auth/product_map/query/finish；公共计时用pkg/utils的StartTiming/MarkTiming/TimingSnapshot，未执行节点不补0。
 - 完成/诊断日志仅用 sid 关联，无 request_id；失败响应仍空 sid。未查得不记异常，映射异常 WARN，其余固定分类 ERROR。
-- 用户确认请求日志 input 为完整 Body、response_data 为实际响应，含请求凭据；不含 Header/Query。status 为业务码，time 为毫秒整数，无顶层 msg；须限制敏感日志访问，禁止真实样本入库。
+- 用户确认请求日志input为完整Body、response_data为实际响应，含请求凭据；顶层apikey仅取/api完整Body中的字符串，异常/缺失或非/api为空，不代表认证成功。不含Header/Query；status为业务码、time为毫秒整数、无顶层msg；限制敏感日志访问，禁止真实样本入库。
 - 测试数据 CLI：`cmd/init_mongo.go`。它会删除并重建 16 个集合，未经明确授权不得运行。
 - Redis 初始化：`cmd/init_redis.go`，SET NX 写入产品映射；`-migrate-map` 显式迁移旧 Hash，保留源及已有目标，授权后才可运行。
 - 依赖锁定：`go.mod`、`go.sum`。CI 为最小 GitHub Actions 门禁

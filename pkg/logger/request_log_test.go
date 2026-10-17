@@ -255,7 +255,8 @@ func TestPushRequestLog_OneJSONRecordAndFixedKey(t *testing.T) {
 	ctx := context.Background()
 	client := &listRecorder{}
 	data, err := (RequestFormatter{}).Format(logrus.NewEntry(logrus.New()).WithFields(logrus.Fields{
-		"success": 1, "charge": 0, "duration_ms": map[string]int64{"entry": 0, "auth": 3, "finish": 4},
+		"success": 1, "charge": 0, "apikey": "synthetic-key", "duration_ms": map[string]int64{"entry": 0, "auth": 3, "finish": 4},
+		"pcode": 10001, "config_sources": map[string]string{"credentials": "mysql"}, "instance_id": "redis-instance", "version": "v-redis-test",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -267,10 +268,18 @@ func TestPushRequestLog_OneJSONRecordAndFixedKey(t *testing.T) {
 		t.Fatal("Redis请求日志契约错误")
 	}
 	var row struct {
-		Timing map[string]int64 `json:"duration_ms"`
+		Pcode    int               `json:"pcode"`
+		Sources  map[string]string `json:"config_sources"`
+		Instance string            `json:"instance_id"`
+		Version  string            `json:"version"`
+		APIKey   string            `json:"apikey"`
+		Timing   map[string]int64  `json:"duration_ms"`
 	}
-	if err := json.Unmarshal([]byte(client.values[0].(string)), &row); err != nil || row.Timing["auth"] != 3 || len(row.Timing) != 3 {
+	if err := json.Unmarshal([]byte(client.values[0].(string)), &row); err != nil || row.Timing["auth"] != 3 || len(row.Timing) != 3 || row.APIKey != "synthetic-key" {
 		t.Fatal("Redis计时对象未保留")
+	}
+	if row.Pcode != 10001 || row.Sources["credentials"] != "mysql" || row.Instance != "redis-instance" || row.Version != "v-redis-test" {
+		t.Fatal("Redis日志来源身份字段未保留")
 	}
 	client.err = errors.New("模拟故障")
 	if err := pushRequestLog(ctx, client, data); !errors.Is(err, client.err) {

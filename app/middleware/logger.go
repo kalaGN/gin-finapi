@@ -6,31 +6,52 @@ import (
 	"io"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kalaGN/gin-finapi/pkg/config"
 	"github.com/kalaGN/gin-finapi/pkg/request"
 	"github.com/kalaGN/gin-finapi/pkg/rescode"
 	"github.com/kalaGN/gin-finapi/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
+const logIdentityKey = "gin-finapi.log-identity"
+
+// RequestLogIdentity 由启动层注入已解析的身份，不从客户端读取实例或版本。
+func RequestLogIdentity(instanceID, version string) gin.HandlerFunc {
+	identity := config.ServerConfig{InstanceID: instanceID, Version: version}.WithLogIdentityDefaults()
+	return func(c *gin.Context) { c.Set(logIdentityKey, identity); c.Next() }
+}
+
 // Logger 按用户确认记录完整请求体和响应；不采集 Header 或 URL Query。
 func Logger(log *logrus.Logger) gin.HandlerFunc {
+	defaultIdentity := config.ServerConfig{}.WithLogIdentityDefaults()
 	return func(c *gin.Context) {
 		if log == nil {
 			c.Next()
 			return
 		}
-		c.Request = c.Request.WithContext(utils.StartTiming(c.Request.Context()))
+		c.Request = c.Request.WithContext(utils.StartConfigSources(utils.StartTiming(c.Request.Context())))
 		var input interface{}
 		var truncated bool
+		var apiKey string
+		var pcode *int64
 		// 管理接口没有Body参数，不采集误放在Body中的管理凭据；Header/Query仍不采集。
 		if c.Request.URL.Path != "/config/cache" {
 			input, truncated = captureInput(c)
+		}
+		if c.Request.URL.Path == "/api" && !truncated {
+			apiKey, pcode = loggedRequestFields(input)
 		}
 		writer := &responseLogWriter{ResponseWriter: c.Writer}
 		c.Writer = writer
 		c.Next()
 		utils.MarkTiming(c.Request.Context(), "finish")
 		if log != nil {
+			identity := defaultIdentity
+			if value, ok := c.Get(logIdentityKey); ok {
+				if configured, ok := value.(config.ServerConfig); ok {
+					identity = configured
+				}
+			}
 			success, charge := 0, 0
 			code, ok := request.ResponseStatus(c)
 			if !ok {
@@ -52,16 +73,21 @@ func Logger(log *logrus.Logger) gin.HandlerFunc {
 				}
 			}
 			fields := logrus.Fields{
-				"sid":           request.SID(c),
-				"method":        c.Request.Method,
-				"path":          c.FullPath(),
-				"http_status":   c.Writer.Status(),
-				"duration_ms":   utils.TimingSnapshot(c.Request.Context()),
-				"success":       success,
-				"charge":        charge,
-				"status":        status,
-				"input":         input,
-				"response_data": logPayload(writer.body.Bytes()),
+				"pcode":          pcode,
+				"config_sources": utils.ConfigSourcesSnapshot(c.Request.Context()),
+				"instance_id":    identity.InstanceID,
+				"version":        identity.Version,
+				"apikey":         apiKey,
+				"sid":            request.SID(c),
+				"method":         c.Request.Method,
+				"path":           c.FullPath(),
+				"http_status":    c.Writer.Status(),
+				"duration_ms":    utils.TimingSnapshot(c.Request.Context()),
+				"success":        success,
+				"charge":         charge,
+				"status":         status,
+				"input":          input,
+				"response_data":  logPayload(writer.body.Bytes()),
 			}
 			if truncated {
 				fields["input_truncated"] = true
@@ -72,6 +98,31 @@ func Logger(log *logrus.Logger) gin.HandlerFunc {
 }
 
 const maxLoggedRequestBody = 64 << 10
+
+// loggedRequestFields 只读已采集的完整Body，不代表认证/参数有效，不回退Header或Query。
+func loggedRequestFields(input interface{}) (string, *int64) {
+	raw, ok := input.(json.RawMessage)
+	if !ok {
+		return "", nil
+	}
+	var body struct {
+		APIKey json.RawMessage       `json:"apikey"`
+		Pcode  request.StrictInteger `json:"pcode"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return "", nil
+	}
+	var apiKey string
+	if len(body.APIKey) > 0 {
+		if err := json.Unmarshal(body.APIKey, &apiKey); err != nil {
+			apiKey = ""
+		}
+	}
+	if body.Pcode.Set && body.Pcode.Err == nil {
+		return apiKey, &body.Pcode.Value
+	}
+	return apiKey, nil
+}
 
 // 读取后重放给原解析链，连读取错误一起保留，避免改变原请求校验。
 func captureInput(c *gin.Context) (interface{}, bool) {

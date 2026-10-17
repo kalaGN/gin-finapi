@@ -43,6 +43,8 @@
 | LOG-03 | Panic恢复后只记录一次实际完成响应；外层Recovery仍保护日志自身 | [panic_log_test.go](../../bootstrap/panic_log_test.go) |
 | LOG-04 | duration_ms为累计毫秒对象；鉴权先于业务、短路缺失后续节点、Panic/health/限流结束、文件与Redis保留对象；公共计时并发/快照隔离 | [timing_test.go](../../pkg/utils/timing_test.go)、[logger_test.go](../../app/middleware/logger_test.go)、[文件后端](../../bootstrap/request_log_test.go)、[Redis输出替身](../../pkg/logger/request_log_test.go)；[设计](../specs/20261016-请求流程计时-设计.md) |
 | LOG-05 | Mongo客户端等待/查询/解压/CSV累计节点，初始化失败/超时/取消、未查得、查询故障、坏gzip/CSV不伪造后续节点 | TestStoreQueryTimingStages；[store_test.go](../../pkg/mongo/store_test.go) |
+| LOG-06 | 顶层apikey取/api完整Body；成功/认证失败/限流保留请求值，缺失/坏类型/坏JSON/截断/非业务为空；不读取Header/Query或管理Token | TestLogger_RequestResultFlags、TestLoggerAPIKeyInputBoundaries；[管理隔离](../../app/middleware/config_cache_auth_test.go) |
+| LOG-07 | pcode严格整数/空值及实例版本不可由客户端覆盖；来源真实冷读/内存/回源、并发等待者/取消/刷新隔离 | [来源测试](../../app/configdata/source_test.go)、[记录器](../../pkg/utils/config_sources_test.go)、[身份配置](../../pkg/config/log_identity_test.go)、TestLoggerProductAndIdentityBoundaries |
 | LIMIT-01 | 独立IP固定窗口、不滑动、并发配额、worker显式Start/Close及有界关闭 | [ratelimit_test.go](../../app/middleware/ratelimit_test.go) |
 | CLI-01 | init/sync拒绝坏env或关闭配置且不连接；dry-run不触碰Redis，失败/锁竞争/发布与释放错误 | [init_mysql_test.go](../../cmd/init_mysql_test.go)、[sync_mysql_redis_test.go](../../cmd/sync_mysql_redis_test.go) |
 | CLI-02 | Redis SET NX保留已有键、显式样例、旧Hash迁移拒绝坏源并保留源和目标 | [init_redis_test.go](../../cmd/init_redis_test.go) |

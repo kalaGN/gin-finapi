@@ -37,9 +37,9 @@ func newConfiguration(cfg config.AppConfig, log *logrus.Logger) (result *configu
 	if err != nil {
 		return nil, err
 	}
-	credentials := configdata.Source[string, services.Credential](c.keys.ReadCredential)
-	products := configdata.Source[services.ProductKey, services.ProductAccess](c.keys.ReadProductAccess)
-	mappings := configdata.Source[int, map[string]int](c.maps.ReadProductMap)
+	credentials := configdata.NamedSource("credentials", "redis", configdata.Source[string, services.Credential](c.keys.ReadCredential))
+	products := configdata.NamedSource("product_access", "redis", configdata.Source[services.ProductKey, services.ProductAccess](c.keys.ReadProductAccess))
+	mappings := configdata.NamedSource("product_map", "redis", configdata.Source[int, map[string]int](c.maps.ReadProductMap))
 	budget := cfg.Redis.Timeout
 	if cfg.MySQL.Enabled {
 		c.mysql, err = appmysql.NewStore(cfg.MySQL)
@@ -47,9 +47,9 @@ func newConfiguration(cfg config.AppConfig, log *logrus.Logger) (result *configu
 			return nil, err
 		}
 		budget += cfg.MySQL.QueryTimeout
-		credentials = configdata.Fallback(credentials, c.mysql.ReadCredential, fallbackReporter(log, "credential"))
-		products = configdata.Fallback(products, c.mysql.ReadProductAccess, fallbackReporter(log, "product_access"))
-		mappings = configdata.Fallback(mappings, c.mysql.ReadProductMap, fallbackReporter(log, "product_map"))
+		credentials = configdata.Fallback(credentials, configdata.NamedSource("credentials", "mysql", configdata.Source[string, services.Credential](c.mysql.ReadCredential)), fallbackReporter(log, "credential"))
+		products = configdata.Fallback(products, configdata.NamedSource("product_access", "mysql", configdata.Source[services.ProductKey, services.ProductAccess](c.mysql.ReadProductAccess)), fallbackReporter(log, "product_access"))
+		mappings = configdata.Fallback(mappings, configdata.NamedSource("product_map", "mysql", configdata.Source[int, map[string]int](c.mysql.ReadProductMap)), fallbackReporter(log, "product_map"))
 	}
 	c.reader, err = configdata.New(configdata.Sources{
 		Credentials: []configdata.Source[string, services.Credential]{credentials},

@@ -97,6 +97,8 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			}
 			assertResultLog(t, output.Bytes(), tc.success, tc.charge)
 			var row struct {
+				Pcode        *int64           `json:"pcode"`
+				APIKey       string           `json:"apikey"`
 				SID          string           `json:"sid"`
 				Input        json.RawMessage  `json:"input"`
 				ResponseData json.RawMessage  `json:"response_data"`
@@ -108,6 +110,12 @@ func TestLogger_RequestResultFlags(t *testing.T) {
 			}
 			if row.Status != tc.code || row.SID != "test-sid" {
 				t.Fatalf("日志status=%d", row.Status)
+			}
+			if row.APIKey != "test-key" {
+				t.Fatalf("日志顶层apikey=%q", row.APIKey)
+			}
+			if row.Pcode == nil || *row.Pcode != 10001 {
+				t.Fatal("未记录请求产品编号")
 			}
 			if _, ok := row.Timing["auth"]; !ok {
 				t.Fatal("缺少鉴权计时")
@@ -167,6 +175,45 @@ func TestLogger_NoBusinessStatusDoesNotCharge(t *testing.T) {
 	}
 }
 
+func TestLoggerAPIKeyInputBoundaries(t *testing.T) {
+	for _, tc := range []struct{ name, path, body, want string }{
+		{"限流仍记录请求Key", "/api", `{"apikey":"synthetic-key"}`, "synthetic-key"},
+		{"缺失", "/api", `{}`, ""},
+		{"非字符串", "/api", `{"apikey":123}`, ""},
+		{"空值", "/api", `{"apikey":null}`, ""},
+		{"无效JSON", "/api", `{"apikey":"synthetic-key"`, ""},
+		{"数组", "/api", `[{"apikey":"synthetic-key"}]`, ""},
+		{"超限", "/api", `{"apikey":"synthetic-key","padding":"` + strings.Repeat("x", maxLoggedRequestBody) + `"}`, ""},
+		{"截断前JSON完整仍不提取", "/api", `{"apikey":"synthetic-key"}` + strings.Repeat(" ", maxLoggedRequestBody), ""},
+		{"非业务路径", "/health", `{"apikey":"synthetic-key"}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			log := logrus.New()
+			log.SetOutput(&output)
+			log.SetFormatter(applogger.RequestFormatter{})
+			r := gin.New()
+			r.Use(Logger(log))
+			r.POST(tc.path, func(c *gin.Context) { c.AbortWithStatus(http.StatusTooManyRequests) })
+			req := httptest.NewRequest("POST", tc.path+"?apikey=query-key", strings.NewReader(tc.body))
+			req.Header.Set("apikey", "header-key")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(output.Bytes(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			if err := json.Unmarshal(fields["apikey"], &got); err != nil || got != tc.want {
+				t.Fatalf("apikey=%q err=%v", got, err)
+			}
+			if w.Code != http.StatusTooManyRequests {
+				t.Fatal("改变了HTTP响应")
+			}
+		})
+	}
+}
+
 func TestLoggerTimingShortCircuitAndPanic(t *testing.T) {
 	for _, panicQuery := range []bool{false, true} {
 		t.Run(map[bool]string{false: "限流短路", true: "查询Panic"}[panicQuery], func(t *testing.T) {
@@ -219,6 +266,16 @@ func assertResultLog(t *testing.T, data []byte, success, charge int) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
 	}
+	for _, field := range []string{"instance_id", "version"} {
+		var value string
+		if err := json.Unmarshal(fields[field], &value); err != nil || value == "" {
+			t.Fatalf("缺少身份字段%s", field)
+		}
+	}
+	var sources map[string]string
+	if err := json.Unmarshal(fields["config_sources"], &sources); err != nil || sources == nil {
+		t.Fatal("config_sources应为对象")
+	}
 	if _, exists := fields["request_id"]; exists {
 		t.Fatal("日志不应再包含 request_id")
 	}
@@ -253,3 +310,61 @@ func assertResultLog(t *testing.T, data []byte, success, charge int) {
 		}
 	}
 }
+
+func TestLoggerProductAndIdentityBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, body string
+		want             *int64
+	}{
+		{"正常", "/api", `{"pcode":10001}`, int64Pointer(10001)},
+		{"范围非法仍记录", "/api", `{"pcode":0}`, int64Pointer(0)},
+		{"apikey类型错误不影响产品字段", "/api", `{"apikey":123,"pcode":10001}`, int64Pointer(10001)},
+		{"客户端伪造元信息无效", "/api", `{"pcode":10001,"instance_id":"untrusted","version":"untrusted","config_sources":{"credentials":"mysql"}}`, int64Pointer(10001)},
+		{"字符串", "/api", `{"pcode":"10001"}`, nil},
+		{"小数", "/api", `{"pcode":10001.5}`, nil},
+		{"溢出", "/api", `{"pcode":9223372036854775808}`, nil},
+		{"缺失", "/api", `{}`, nil},
+		{"空值", "/api", `{"pcode":null}`, nil},
+		{"无效JSON", "/api", `{"pcode":10001`, nil},
+		{"超限", "/api", `{"pcode":10001,"pad":"` + strings.Repeat("x", maxLoggedRequestBody) + `"}`, nil},
+		{"health", "/health", `{"pcode":10001}`, nil},
+		{"管理", "/config/cache", `{"pcode":10001}`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			log := logrus.New()
+			log.SetOutput(&out)
+			log.SetFormatter(applogger.RequestFormatter{})
+			r := gin.New()
+			r.Use(RequestLogIdentity("synthetic-instance", "v-test"), Logger(log))
+			r.POST(tc.path, func(c *gin.Context) {
+				if tc.path == "/api" {
+					utils.SetConfigSource(c.Request.Context(), "credentials", "redis")
+				}
+				c.Status(200)
+			})
+			req := httptest.NewRequest("POST", tc.path+"?pcode=99999", strings.NewReader(tc.body))
+			req.Header.Set("instance_id", "untrusted")
+			req.Header.Set("version", "untrusted")
+			r.ServeHTTP(httptest.NewRecorder(), req)
+			var row struct {
+				Pcode    *int64            `json:"pcode"`
+				Instance string            `json:"instance_id"`
+				Version  string            `json:"version"`
+				Sources  map[string]string `json:"config_sources"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &row); err != nil {
+				t.Fatal(err)
+			}
+			wantSource := ""
+			if tc.path == "/api" {
+				wantSource = "redis"
+			}
+			if !reflect.DeepEqual(row.Pcode, tc.want) || row.Instance != "synthetic-instance" || row.Version != "v-test" || row.Sources["credentials"] != wantSource {
+				t.Fatalf("日志元信息错误：%+v", row)
+			}
+		})
+	}
+}
+
+func int64Pointer(value int64) *int64 { return &value }

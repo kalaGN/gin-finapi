@@ -63,14 +63,14 @@ func TestCacheManagementLogsDoNotExposeTokenOrCharge(t *testing.T) {
 		router := gin.New()
 		router.Use(Logger(log))
 		router.DELETE("/config/cache", ConfigCacheAuth("synthetic-admin"), func(c *gin.Context) { c.JSON(200, gin.H{"cleared": gin.H{"credentials": 1}}) })
-		req := httptest.NewRequest(http.MethodDelete, "/config/cache?token=synthetic-admin", strings.NewReader(`{"token":"synthetic-admin"}`))
+		req := httptest.NewRequest(http.MethodDelete, "/config/cache?token=synthetic-admin", strings.NewReader(`{"token":"synthetic-admin","apikey":"synthetic-admin"}`))
 		if authorized {
 			req.Header.Set("Authorization", "Bearer synthetic-admin")
 		}
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, req)
 		line := output.String()
-		if strings.Contains(line, "synthetic-admin") || !strings.Contains(line, `"charge":0`) || !strings.Contains(line, `"input":null`) {
+		if strings.Contains(line, "synthetic-admin") || !strings.Contains(line, `"charge":0`) || !strings.Contains(line, `"input":null`) || !strings.Contains(line, `"apikey":""`) {
 			t.Fatal("管理日志泄露凭据或产生计费标记")
 		}
 	}

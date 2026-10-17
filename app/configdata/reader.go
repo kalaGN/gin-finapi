@@ -65,6 +65,7 @@ func New(s Sources, cfg config.CacheConfig, timeout time.Duration) (*Reader, err
 	r.credentials = newCache(root, timeout, gate, cfg.APIKeyEntries, s.Credentials, func(v services.Credential) services.Credential { return v })
 	r.products = newCache(root, timeout, gate, cfg.ProductAuthEntries, s.Products, func(v services.ProductAccess) services.ProductAccess { return v })
 	r.mappings = newCache(root, timeout, gate, cfg.ProductMapEntries, s.Maps, maps.Clone[map[string]int])
+	r.credentials.dataType, r.products.dataType, r.mappings.dataType = "credentials", "product_access", "product_map"
 	r.credentials.disabled, r.products.disabled, r.mappings.disabled = cfg.Disabled, cfg.Disabled, cfg.Disabled
 	return r, nil
 }

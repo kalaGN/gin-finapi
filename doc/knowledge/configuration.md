@@ -35,6 +35,8 @@ REDIS_POOL_SIZE是每个连接池的参数：认证与产品映射各一池，My
 |--------|------|--------|------|
 | `SERVER_PORT` | 服务端口 | `8082` | 否 |
 | `ENV` | 运行环境 | `production` | 否 |
+| `INSTANCE_ID` | 请求日志实例ID；默认主机名:PID，可由部署环境覆盖 | 自动解析 | 否 |
+| `APP_VERSION` | 请求日志应用版本；默认模块构建版本/Git修订，缺失时unknown | 自动解析 | 否 |
 | `RATE_LIMIT_REQUESTS` | 每个 IP 在窗口内允许的次数，正整数 | `5000` | 否 |
 | `RATE_LIMIT_WINDOW` | 限流窗口，正 Go duration，例如 `1s`、`500ms` | `1s` | 否 |
 | `MONGODB_DSN` | MongoDB 连接字符串 | - | 是 |

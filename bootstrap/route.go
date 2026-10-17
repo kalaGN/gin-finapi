@@ -60,6 +60,8 @@ func NewRouter(cfg config.AppConfig, log *logrus.Logger) (*gin.Engine, func(cont
 		}
 	}
 	router := gin.New()
+	identity := cfg.Server.WithLogIdentityDefaults()
+	router.Use(middleware.RequestLogIdentity(identity.InstanceID, identity.Version))
 	closeMiddleware := SetupRoute(router, handler.Create, middleware.LoanAuthWithProduct(reader.LoadCredential, reader.CheckProductAccess), log, cfg.RateLimit, requestLog)
 	if cacheHandler != nil {
 		routes.RegisterConfigCacheRoute(router, cacheHandler.Clear, middleware.ConfigCacheAuth(cfg.ConfigCacheToken), middleware.RequestSID(utils.GenerateSID, log))

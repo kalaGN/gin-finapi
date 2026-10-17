@@ -24,6 +24,7 @@ func TestNewRouter_RequestLogFileBackend(t *testing.T) {
 	base := logrus.New()
 	base.SetOutput(&appLog)
 	cfg := config.AppConfig{
+		Server:     config.ServerConfig{InstanceID: "file-instance", Version: "v-file-test"},
 		MongoDB:    config.MongoDBConfig{DSN: "invalid-test-dsn", Database: "test", MaxPool: 1},
 		Redis:      config.RedisConfig{Addr: "127.0.0.1:1", PoolSize: 1, Timeout: time.Second},
 		RateLimit:  config.RateLimitConfig{Requests: 100, Window: time.Second},
@@ -79,6 +80,15 @@ func TestNewRouter_RequestLogFileBackend(t *testing.T) {
 	}
 	if _, ok := fields["msg"]; ok {
 		t.Fatal("日志顶层 msg 应删除")
+	}
+	if value, ok := fields["apikey"]; !ok || value != "" {
+		t.Fatal("文件日志缺失apikey空值或错误提取凭据")
+	}
+	if fields["instance_id"] != "file-instance" || fields["version"] != "v-file-test" || fields["pcode"] != nil {
+		t.Fatal("文件后端身份/产品字段错误")
+	}
+	if sources, ok := fields["config_sources"].(map[string]interface{}); !ok || len(sources) != 0 {
+		t.Fatal("参数失败不应伪造配置命中")
 	}
 	points, ok := fields["duration_ms"].(map[string]interface{})
 	if !ok || len(points) != 3 || points["entry"] != float64(0) {

@@ -271,6 +271,13 @@ go build ./...
 - 用户已明确批准请求完成日志记录完整 Body（input）及实际响应（response_data），包括请求凭据；
   不含 Header/Query。status 为业务码，无业务码为 null；time 为 Unix 毫秒整数，删除顶层 msg。
   请求超出既有 64 KiB 限制时只记录前 64 KiB 并标记 input_truncated，接口仍拒绝超限请求；传输仍需 HTTPS。
+  顶层apikey为请求/api完整JSON对象中的字符串值，失败/限流亦可记录，不能作为可信身份；
+  缺失、非字符串、解析失败、超限截断及非/api均为空字符串，不读取Header/Query或管理Token。
+  顶层pcode仅提取/api完整Body的int64整数，否则null；仅供请求排障，不表示校验/授权通过。
+  config_sources只记录实际取得记录的credentials/product_access/product_map来源（memory/redis/mysql）；
+  未执行/缺失/故障无命中则省略，禁止根据开关猜来源。共享读取必须将来源安全传播给每个取得结果的请求。
+  instance_id/version由启动配置与主机/构建信息解析，不读客户端输入；INSTANCE_ID/APP_VERSION可覆盖，
+  构建信息缺失记unknown，不伪造版本或宣称自动发布。日志之外的响应/计费语义不得改变。
 - 请求完成日志 success/charge 为整数：业务 status=0 时 1/1，3001 时 1/0，其他或无状态时 0/0。
   业务 JSON 响应使用 pkg/request.JSON 或 AbortWithStatusJSON 保存安全状态元信息，不按 HTTP 状态推断。
   charge 只是日志标记，不代表已接入实际扣费系统。

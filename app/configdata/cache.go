@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kalaGN/gin-finapi/app/services"
+	"github.com/kalaGN/gin-finapi/pkg/utils"
 )
 
 // Source 只有明确缺失才能继续下一个数据源，错误和禁用记录都不能降级。
@@ -18,10 +19,11 @@ type entry[K comparable, V any] struct {
 	value V
 }
 type flight[V any] struct {
-	done  chan struct{}
-	value V
-	found bool
-	err   error
+	done   chan struct{}
+	value  V
+	found  bool
+	err    error
+	source string
 }
 
 // cache 不保存缓存时间或 TTL；只按容量淘汰，并由显式刷新更新快照。
@@ -38,6 +40,7 @@ type cache[K comparable, V any] struct {
 	gate     chan struct{}
 	closed   bool
 	disabled bool
+	dataType string
 	wg       sync.WaitGroup
 }
 
@@ -49,7 +52,7 @@ func (c *cache[K, V]) lookupLocked(key K, refresh bool) (*flight[V], bool) {
 	if !refresh {
 		if e, ok := c.entries[key]; ok {
 			c.lru.MoveToFront(e)
-			return &flight[V]{value: e.Value.(entry[K, V]).value, found: true}, true
+			return &flight[V]{value: e.Value.(entry[K, V]).value, found: true, source: "memory"}, true
 		}
 	}
 	f, ok := c.flights[key]
@@ -69,6 +72,15 @@ func waitFlight[V any](ctx context.Context, f *flight[V]) (V, bool, error) {
 	}
 }
 
+// result 将共享读取的实际来源复制到每个拿到结果的请求，不把首请求Context传给后台读取。
+func (c *cache[K, V]) result(ctx context.Context, f *flight[V]) (V, bool, error) {
+	value, found, err := waitFlight(ctx, f)
+	if found && err == nil {
+		utils.SetConfigSource(ctx, c.dataType, f.source)
+	}
+	return c.clone(value), found, err
+}
+
 func (c *cache[K, V]) load(ctx context.Context, key K, refresh bool) (V, bool, error) {
 	if c.disabled {
 		return c.direct(ctx, key)
@@ -85,14 +97,13 @@ func (c *cache[K, V]) load(ctx context.Context, key K, refresh bool) (V, bool, e
 	f, ok := c.lookupLocked(key, refresh)
 	c.mu.Unlock()
 	if ok && f.done == nil {
-		return c.clone(f.value), f.found, f.err
+		return c.result(ctx, f)
 	}
 	// 冷读取的等待预算同时覆盖排队和合并等待；热缓存不创建计时器。
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	if ok {
-		v, found, err := waitFlight(ctx, f)
-		return c.clone(v), found, err
+		return c.result(ctx, f)
 	}
 	// 限制正在进行的回源，不为任意数量的未知键启动 goroutine。
 	select {
@@ -112,8 +123,7 @@ func (c *cache[K, V]) load(ctx context.Context, key K, refresh bool) (V, bool, e
 	if ok {
 		c.mu.Unlock()
 		<-c.gate
-		v, found, err := waitFlight(ctx, f)
-		return c.clone(v), found, err
+		return c.result(ctx, f)
 	}
 	f = &flight[V]{done: make(chan struct{})}
 	c.flights[key] = f
@@ -121,8 +131,7 @@ func (c *cache[K, V]) load(ctx context.Context, key K, refresh bool) (V, bool, e
 	c.mu.Unlock()
 	// 合并读取不使用第一个请求的 Context，单个等待者取消不影响其他请求。
 	go c.fetch(key, refresh, f)
-	v, found, err := waitFlight(ctx, f)
-	return c.clone(v), found, err
+	return c.result(ctx, f)
 }
 
 func (c *cache[K, V]) fetch(key K, refresh bool, f *flight[V]) {
@@ -130,7 +139,9 @@ func (c *cache[K, V]) fetch(key K, refresh bool, f *flight[V]) {
 	defer func() { <-c.gate }()
 	ctx, cancel := context.WithTimeout(c.root, c.timeout)
 	defer cancel()
+	ctx = utils.StartConfigSources(ctx)
 	f.value, f.found, f.err = c.readSources(ctx, key)
+	f.source = utils.ConfigSourcesSnapshot(ctx)[c.dataType]
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// 清理会替换 flight 索引；旧读取只能通知原等待者，不能污染新缓存。
